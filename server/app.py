@@ -23,7 +23,8 @@ LAB = DATA / "lab"
 HUB = DATA / "hub"
 TRACE = DATA / "trace"
 ATLAS = DATA / "atlas"
-for d in (LAB, HUB, TRACE, ATLAS):
+ENGINE = DATA / "engine"
+for d in (LAB, HUB, TRACE, ATLAS, ENGINE):
     d.mkdir(parents=True, exist_ok=True)
 VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "dev"
 
@@ -474,6 +475,115 @@ def atlas_delete(pid: str):
         raise HTTPException(404, "No such profile.")
     shutil.rmtree(d)
     return {"deleted": pid}
+
+
+# ------------------------------------------------------------------ engine
+@app.get("/api/engine/meta")
+def engine_meta():
+    from .engine import nano
+    from .engine.ledger import LEVERS
+    from .engine.narrator import DEFAULT_MODEL, get_key
+
+    return {"levers": LEVERS, "tasks": nano.TASKS, "arch": nano.DEFAULT_ARCH, "opt": nano.DEFAULT_OPT,
+            "has_anthropic_key": bool(get_key(DATA / "settings.json")), "default_model": DEFAULT_MODEL}
+
+
+@app.get("/api/engine/ledger")
+def engine_ledger():
+    from .engine.ledger import load
+
+    return clean(load(ENGINE))
+
+
+@app.post("/api/engine/mine")
+def engine_mine():
+    from .engine.ledger import mine
+
+    return clean(mine(ENGINE, ATLAS, LAB))
+
+
+class ExperimentReq(BaseModel):
+    task: str
+    lever: str
+    args: dict = {}
+    seeds: list[int] = [1, 2, 3]
+    steps: int | None = None
+    rule_id: str | None = None
+
+
+@app.post("/api/engine/experiment")
+def engine_experiment(req: ExperimentReq):
+    from .engine import nano
+    from .engine.ledger import LEVERS, run_lever
+
+    if req.task not in nano.TASKS or req.lever not in LEVERS:
+        raise HTTPException(400, "Unknown task or lever.")
+    seeds = sorted(set(req.seeds))[:6] or [1]
+
+    def work(update, stopped):
+        return run_lever(ENGINE, DATA, req.task, req.lever, req.args, seeds, req.steps, req.rule_id, update, stopped)
+
+    return {"job": jobs.submit("experiment", f"Test lever '{req.lever}' on {req.task}", work).id}
+
+
+class BlueprintReq(BaseModel):
+    levers: dict
+    tasks: list[str] = ["sort", "copy", "modadd"]
+    seeds: list[int] = [1, 2]
+    steps_scale: float = Field(1.0, gt=0.05, le=5)
+
+
+@app.post("/api/engine/blueprint")
+def engine_blueprint(req: BlueprintReq):
+    from .engine import nano
+    from .engine.ledger import LEVERS, build_blueprint
+
+    bad = [t for t in req.tasks if t not in nano.TASKS] + [k for k in req.levers if k not in LEVERS]
+    if bad or not req.tasks or not req.levers:
+        raise HTTPException(400, f"Choose at least one task and one lever{'; unknown: ' + ', '.join(bad) if bad else ''}.")
+
+    def work(update, stopped):
+        return build_blueprint(ENGINE, DATA, req.levers, req.tasks, sorted(set(req.seeds))[:4] or [1], req.steps_scale, update, stopped)
+
+    return {"job": jobs.submit("blueprint", "Build and train a blueprint", work).id}
+
+
+class NarrateReq(BaseModel):
+    use_claude: bool = True
+    model: str | None = None
+
+
+@app.post("/api/engine/narrate")
+def engine_narrate(req: NarrateReq):
+    from .engine.ledger import load, save
+    from .engine.narrator import DEFAULT_MODEL, get_key, narrate
+
+    def work(update, stopped):
+        update(0.1, "Reading the ledger")
+        L = load(ENGINE)
+        if not L["rules"]:
+            raise ValueError("The ledger is empty. Mine rules first.")
+        key = get_key(DATA / "settings.json") if req.use_claude else None
+        update(0.3, "Writing the world view" + (" with Claude" if key else ""))
+        n = narrate(L, key, req.model or DEFAULT_MODEL)
+        L = load(ENGINE)
+        L["narratives"] = ([n] + L.get("narratives", []))[:10]
+        save(ENGINE, L)
+        return n
+
+    return {"job": jobs.submit("narrate", "Write the world view", work).id}
+
+
+class KeyReq(BaseModel):
+    key: str | None = None
+
+
+@app.post("/api/settings/anthropic")
+def anthropic_key(req: KeyReq):
+    from .engine.narrator import get_key, set_key
+
+    set_key(DATA / "settings.json", req.key)
+    return {"has_key": bool(get_key(DATA / "settings.json"))}
 
 
 # ------------------------------------------------------------------ model catalog

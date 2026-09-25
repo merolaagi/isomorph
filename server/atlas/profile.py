@@ -75,6 +75,39 @@ def centred_gram(x):
     return (k / (k.norm() + 1e-12)).float()
 
 
+def mlp_usage(tok, model, texts):
+    """Per layer: average share of MLP neurons that carry 90% of the activity for a token."""
+    from ..hub.acts import ACT_RE, _layer_idx
+
+    dev = next(model.parameters()).device
+    store = {}
+    hooks = []
+    cur = {}
+    for name, mod in model.named_modules():
+        if ACT_RE.search(name):
+            li = _layer_idx(name)
+            if li is not None:
+                hooks.append(mod.register_forward_hook(lambda _m, _i, o, li=li: cur.__setitem__(li, o.detach().float())))
+    try:
+        for i in range(0, len(texts), BATCH):
+            enc = _encode(tok, texts[i:i + BATCH])
+            ids, mask = enc["input_ids"].to(dev), enc["attention_mask"].to(dev)
+            cur.clear()
+            with torch.no_grad():
+                model(input_ids=ids, attention_mask=mask)
+            for li, a in cur.items():
+                v = a.abs()
+                srt = v.sort(-1, descending=True).values
+                cum = srt.cumsum(-1) / (srt.sum(-1, keepdim=True) + 1e-12)
+                share = ((cum < 0.9).sum(-1) + 1).float() / v.shape[-1]
+                m = mask.bool()
+                store.setdefault(li, []).append(share[m].cpu())
+    finally:
+        for h in hooks:
+            h.remove()
+    return [float(torch.cat(store[k]).mean()) for k in sorted(store)] or None
+
+
 # ------------------------------------------------------------------ circuits
 def _attn_out_proj(block):
     for name in ("attention", "attn", "self_attn", "self_attention"):
@@ -254,21 +287,23 @@ def profile_model(spec, resolved, atlas_dir: Path, progress=lambda f, m: None, l
         progress(f0, f"{tag}: fingerprint over {len(anchors)} anchor texts")
         hs = hidden_pooled(tok, m, anchors)
         grams = [centred_gram(h) for h in hs]
+        progress(f0 + 0.3 * span, f"{tag}: neuron usage")
+        usage = mlp_usage(tok, m, anchors[:96])
         progress(f0 + 0.35 * span, f"{tag}: attention circuits")
         circ = circuits(tok, m)
         progress(f0 + 0.55 * span, f"{tag}: concept probes")
         conc = concept_scores(tok, m)
-        return grams, circ, conc
+        return grams, circ, conc, usage
 
     t0 = time.time()
-    g_real, c_real, k_real = one(model, "Trained model", 0.08, 0.5)
+    g_real, c_real, k_real, u_real = one(model, "Trained model", 0.08, 0.5)
     progress(0.52, "Weight signature")
     wsig = weight_signature(model)
-    g_rand = c_rand = k_rand = wsig_rand = None
+    g_rand = c_rand = k_rand = wsig_rand = u_rand = None
     if baseline:
         progress(0.58, "Building a randomly initialised copy as the baseline")
         twin = random_twin(model)
-        g_rand, c_rand, k_rand = one(twin, "Random baseline", 0.6, 0.95)
+        g_rand, c_rand, k_rand, u_rand = one(twin, "Random baseline", 0.6, 0.95)
         progress(0.96, "Random baseline: weight signature")
         wsig_rand = weight_signature(twin)
         del twin
@@ -288,7 +323,7 @@ def profile_model(spec, resolved, atlas_dir: Path, progress=lambda f, m: None, l
         "layers": L, "d_model": getattr(cfg, "hidden_size", None) or getattr(cfg, "n_embd", None),
         "params": sum(p.numel() for p in model.parameters()),
         "circuits": c_real, "circuits_random": c_rand, "concepts": k_real, "concepts_random": k_rand,
-        "weights": wsig, "weights_random": wsig_rand, "has_baseline": bool(g_rand),
+        "weights": wsig, "weights_random": wsig_rand, "mlp_share": u_real, "mlp_share_random": u_rand, "has_baseline": bool(g_rand),
     }
     from ..jsonsafe import clean
 

@@ -19,6 +19,7 @@
   <nav role="tablist">
     <button role="tab" data-view="trace" aria-selected="true">Side by side</button>
     <button role="tab" data-view="atlas" aria-selected="false">Pattern library</button>
+    <button role="tab" data-view="engine" aria-selected="false">Engine</button>
     <button role="tab" data-view="lab" aria-selected="false">Ground-truth lab</button>
     <button role="tab" data-view="hub" aria-selected="false">Model statistics</button>
     <button role="tab" data-view="about" aria-selected="false">How it works</button>
@@ -90,6 +91,22 @@
         <p>With a few models profiled, the library shows which patterns are shared, which are rare, and how close each model is to the consensus at every depth. Add the model you are curious about last: its page will say what it shares with the rest and what it lacks.</p>
       </div>
     </div>
+  </section>
+
+  <!-- ENGINE -->
+  <section class="view" id="view-engine" hidden>
+    <aside class="rail">
+      <h2>The research loop</h2>
+      <p class="hint">1. Mine rules from everything measured so far. 2. Test the rules that suggest a saving. 3. Combine what holds into a blueprint and train it against a plain model. 4. Write up the world view, citing the evidence.</p>
+      <button class="primary wide" id="en-mine">Mine rules now</button>
+      <div class="kv" id="en-counts" style="margin:12px 0 4px"></div>
+      <p class="hint" id="en-updated"></p>
+      <h2 class="mt">Claude for the world view</h2>
+      <p class="hint" id="en-keystate">Checking…</p>
+      <div class="pk-row"><input id="en-key" type="password" placeholder="sk-ant-…" autocomplete="off"><button class="ghost" id="en-keysave">Save</button></div>
+      <p class="hint">Optional. Without a key the engine writes a built-in digest from the same ledger. The key is stored only on this Mac.</p>
+    </aside>
+    <div class="stage" id="en-stage"></div>
   </section>
 
   <!-- LAB -->
@@ -169,6 +186,9 @@
       <p>A checkpoint file is a long list of numbers plus an index. In the safetensors format the first 8 bytes give the length of a JSON index; the index names every tensor with its number type, shape and byte range; the rest of the file is the raw numbers packed end to end. Each number is usually a 32-bit or 16-bit float: one sign bit, a few exponent bits and the remaining mantissa bits. The Weight files tab shows these bytes for real.</p>
       <p>Reading a prompt does not change any of those numbers. The prompt becomes vectors that flow through the fixed weights layer by layer. What differs from prompt to prompt is which weights matter: which neurons fire, where attention goes, which directions the signal takes. The Side by side view follows that flow in two models at once and marks where they part ways. Its Architecture tab reads each model's own code and draws the forward pass step by step, marking exactly where learned weights enter (embedding, the Q, K, V and output projections, the MLP's up and down projections, the norms' scale and shift, the output layer) and where they don't (rotary position, attention scores, softmax, activation functions, residual additions).</p>
       <p>Weights change only during training. The learning probe shows what one training step on the prompt would do: which layers take the change and how low-rank it is.</p>
+      <h1>The engine</h1>
+      <p>The Engine tab closes the loop from measurement to design. Its rule miner reads every profile in the Pattern library and every seeding experiment in the lab, and states regularities: patterns present in every model, concepts that always become readable in a fixed order, circuits that sit at a fixed depth, layers that repeat each other, neurons that mostly stay quiet, weights that use less than their full rank. Each rule keeps its supporting models, its counterexamples and its effect against random baselines.</p>
+      <p>Rules that suggest a saving can be tested. The experiment compiler trains a plain model and a variant with one efficiency lever switched on, on the same task and seeds: reusing block weights across layers, keeping only the strongest neurons, factoring weight matrices, or seeding with a known pattern. The verdict goes back into the ledger. The blueprint builder then combines every lever that held and measures capability per unit of compute against a plain model, on small algorithmic tasks and on TinyStories. Finally the narrator writes the ledger up as a world view in which every claim cites the rule, experiment or blueprint behind it.</p>
       <h1>Why raw weights can't be compared</h1>
       <p>Take any trained network and swap two hidden neurons, along with their incoming and outgoing weights. Nothing about its behaviour changes, yet the weight matrices now look different. A transformer has far more of these free choices: the neuron order in every MLP, the order of attention heads, an arbitrary basis inside each head, and a rotation of the whole residual stream when there is no LayerNorm to pin it. Two networks can be the same machine and still have raw weight cosine near zero.</p>
       <p>So Isomorph compares in steps, and each step removes one kind of freedom.</p>
@@ -196,5 +216,6 @@
 <script src="/static/trace.js"></script>
 <script src="/static/picker.js"></script>
 <script src="/static/atlas.js"></script>
+<script src="/static/engine.js"></script>
 </body>
 </html>

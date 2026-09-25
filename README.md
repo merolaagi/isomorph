@@ -29,6 +29,12 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 
 **Pattern library.** Profile any language model into a local library: a fingerprint over 239 fixed anchor texts (per-layer similarity structure, comparable across any architecture), attention-circuit scores (induction, previous-token, duplicate-token heads, attention sinks) with a causal test that removes the induction heads, linear probes for plural, tense, negation, sentiment and number magnitude with a shuffled-label control, and a weight-spectrum signature. Every measure is repeated on a randomly initialised copy of the same architecture, and a pattern only counts if the trained model clearly beats it. The library shows which patterns are shared, a similarity map, each model's agreement with the consensus at every depth, and for any new model what it shares and what it lacks.
 
+**Engine.** A research loop on top of everything measured:
+1. *Rule miner*: invariants, depth orderings, circuit locations, layer redundancy, activation sparsity, low rank, convergence, scaling and lab results, each with support, counterexamples, effect size against random baselines and a confidence grade. Missing patterns and contradicted rules are listed as unknown territory.
+2. *Experiment compiler*: turns a rule into a controlled test of an efficiency lever (share block weights across layers, keep only the top-k MLP neurons, factor weights to low rank, seed with a known pattern) on sort, copy, modular addition or byte-level TinyStories. Baseline and variant use the same data and seeds; the verdict (holds, rejected, inconclusive) is written back to the rule.
+3. *Blueprint builder*: combines the levers that held, trains against a plain model and reports capability per unit of compute.
+4. *Narrator*: writes the ledger up as a world view with Claude (Anthropic API key stored locally) or a built-in digest; every claim cites a ledger id and unknown ids are flagged.
+
 **Ground-truth lab.** Trains a family of tiny transformers on (a + b) mod p that differ only in their random seed. The correct algorithm is known (Fourier "clock" circuits), so every tool can be checked here first. For any two seeds:
 
 1. Raw weight cosine.
