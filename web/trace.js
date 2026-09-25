@@ -18,7 +18,7 @@
     for (const p of PRESETS) {
       const li = document.createElement("li");
       li.innerHTML = `<button><span class="t1">${esc(p.t)}</span><span class="t2">${esc(p.d)}</span></button>`;
-      li.querySelector("button").onclick = () => { $("#tr-a").value = p.a; $("#tr-b").value = p.b; toast("Preset loaded. Press Trace prompt."); };
+      li.querySelector("button").onclick = () => { $("#tr-a").value = p.a; $("#tr-b").value = p.b; presetFilled(["#tr-a", "#tr-b"], ["#tr-run"], `A and B are now ${p.a.split("/").pop()} and ${p.b.split("/").pop()}. Press Trace prompt to run.`); };
       ul.appendChild(li);
     }
   }

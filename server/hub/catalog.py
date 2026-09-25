@@ -273,3 +273,27 @@ def saved_remove(data: Path, spec: str):
     items = [x for x in saved_list(data) if x["spec"] != spec]
     saved_path(data).write_text(json.dumps(items))
     return items
+
+
+# ------------------------------------------------------------------ recently used models
+def recent_path(data: Path):
+    return data / "recent.json"
+
+
+def recent_list(data: Path):
+    p = recent_path(data)
+    try:
+        return json.loads(p.read_text()) if p.exists() else []
+    except Exception:
+        return []
+
+
+def recent_add(data: Path, *specs):
+    items = recent_list(data)
+    for spec in specs:
+        spec = (spec or "").strip()
+        if not spec:
+            continue
+        items = [x for x in items if x["spec"] != spec]
+        items.insert(0, {"spec": spec, "used": time.time()})
+    recent_path(data).write_text(json.dumps(items[:20]))

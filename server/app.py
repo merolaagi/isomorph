@@ -307,6 +307,7 @@ def hub_weights(req: HubReq):
         if not pairs:
             raise ValueError("These checkpoints share no tensor names, so there is nothing to pair. Try the activation comparison instead.")
         r = weight_report(wa, wb, pairs, lambda f, m: update(0.6 + 0.4 * f, m))
+        catalog.recent_add(DATA, req.a, req.b)
         return _save_hub("weights", req, r)
 
     return {"job": jobs.submit("hub-weights", f"Weights: {req.a} vs {req.b}", work).id}
@@ -320,6 +321,7 @@ def hub_acts(req: HubReq):
         a = catalog.resolve(req.a, DATA, update)
         b = catalog.resolve(req.b, DATA, update)
         r = activation_report(a, b, req.texts, req.max_tokens, update)
+        catalog.recent_add(DATA, req.a, req.b)
         return _save_hub("activations", req, r)
 
     return {"job": jobs.submit("hub-acts", f"Activations: {req.a} vs {req.b}", work).id}
@@ -362,7 +364,9 @@ def trace_storage(req: StorageReq):
     from .trace.storage import storage_report
 
     def work(update, stopped):
-        return storage_report(catalog.resolve(req.spec, DATA, update), update)
+        r = storage_report(catalog.resolve(req.spec, DATA, update), update)
+        catalog.recent_add(DATA, req.spec)
+        return r
 
     return {"job": jobs.submit("storage", f"Read the files of {req.spec}", work).id}
 
@@ -382,6 +386,7 @@ def trace_run(req: TraceReq):
         a = catalog.resolve(req.a, DATA, update)
         b = catalog.resolve(req.b, DATA, update)
         r = trace_report(a, b, req.prompt, update, learning=req.learning)
+        catalog.recent_add(DATA, req.a, req.b)
         rid = time.strftime("%Y%m%d-%H%M%S") + "-trace"
         blob = {"id": rid, "a": req.a, "b": req.b, "prompt": req.prompt, "created": time.time(), "result": r}
         return _write(TRACE / f"{rid}.json", blob)
@@ -399,7 +404,9 @@ def trace_anatomy(req: AnatomyReq):
     from .trace.anatomy import anatomy_report
 
     def work(update, stopped):
-        return anatomy_report(catalog.resolve(req.spec, DATA, update), req.prompt, update)
+        r = anatomy_report(catalog.resolve(req.spec, DATA, update), req.prompt, update)
+        catalog.recent_add(DATA, req.spec)
+        return r
 
     return {"job": jobs.submit("anatomy", f"Architecture of {req.spec}", work).id}
 
@@ -436,7 +443,9 @@ def atlas_profile(req: ProfileReq):
 
     def work(update, stopped):
         resolved = catalog.resolve(req.spec, DATA, update)
-        return profile_model(req.spec.strip(), resolved, ATLAS, update, baseline=req.baseline)
+        r = profile_model(req.spec.strip(), resolved, ATLAS, update, baseline=req.baseline)
+        catalog.recent_add(DATA, req.spec)
+        return r
 
     return {"job": jobs.submit("profile", f"Profile {req.spec}", work).id}
 
@@ -500,6 +509,11 @@ def models_save(req: SpecReq):
     if not req.spec.strip():
         raise HTTPException(400, "Nothing to save.")
     return catalog.saved_add(DATA, req.spec.strip(), req.note, req.meta)
+
+
+@app.get("/api/models/recent")
+def models_recent():
+    return catalog.recent_list(DATA)
 
 
 @app.delete("/api/models/saved")

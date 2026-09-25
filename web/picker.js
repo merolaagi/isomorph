@@ -31,24 +31,70 @@
     catch (e) { toast(e.message, true); }
   }
 
-  // ------------------------------------------------------------ saved list (rail)
+  // ------------------------------------------------------------ saved and recent lists (rail)
+  let savedSpecs = new Set();
+  function refreshStars() {
+    document.querySelectorAll("[data-save-for]").forEach((b) => {
+      const el = $(b.dataset.saveFor);
+      const on = el && savedSpecs.has(el.value.trim());
+      b.textContent = on ? "★" : "☆";
+      b.classList.toggle("on", !!on);
+      b.title = on ? "Saved in My models (click to remove)" : "Save to My models";
+    });
+  }
+  document.querySelectorAll("[data-save-for]").forEach((b) => {
+    b.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const spec = $(b.dataset.saveFor).value.trim();
+      if (!spec) return toast("Enter a model first.", true);
+      if (savedSpecs.has(spec)) {
+        await api(`/api/models/saved?spec=${encodeURIComponent(spec)}`, { method: "DELETE" });
+        toast("Removed from My models.");
+        return loadSaved();
+      }
+      let meta = {};
+      try { const i = await api("/api/models/info", { method: "POST", body: { spec } }); meta = { params: i.params, traceable: i.traceable, arch: i.arch }; } catch { /* save anyway */ }
+      save(spec, meta);
+    });
+    const el = $(b.dataset.saveFor);
+    if (el) el.addEventListener("input", refreshStars);
+  });
+
+  function row(spec, sub, tgt, pinned) {
+    const li = document.createElement("li");
+    li.className = "saved";
+    li.innerHTML = `<div class="sv"><span class="t1" title="${esc(spec)}">${esc(spec)}</span><span class="t2">${sub}</span></div>
+      <button class="ghost small" data-s="a" title="Use as model A"><span class="headA">A</span></button>
+      <button class="ghost small" data-s="b" title="Use as model B"><span class="headB">B</span></button>
+      ${pinned ? `<button class="ghost small" data-x title="Remove from My models">×</button>` : `<button class="ghost small" data-pin title="Save to My models">☆</button>`}`;
+    li.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { const el = $(tgt[b.dataset.s]); el.value = spec; el.dispatchEvent(new Event("change")); refreshStars(); presetFilled([tgt[b.dataset.s]], [], `Model ${b.dataset.s.toUpperCase()} set to ${spec}.`); }));
+    const x = li.querySelector("[data-x]");
+    if (x) x.onclick = async () => { await api(`/api/models/saved?spec=${encodeURIComponent(spec)}`, { method: "DELETE" }); loadSaved(); };
+    const pin = li.querySelector("[data-pin]");
+    if (pin) pin.onclick = () => save(spec, {});
+    return li;
+  }
+
   async function loadSaved() {
-    const items = await api("/api/models/saved").catch(() => []);
+    const [items, recent] = await Promise.all([api("/api/models/saved").catch(() => []), api("/api/models/recent").catch(() => [])]);
+    savedSpecs = new Set(items.map((i) => i.spec));
+    refreshStars();
+    const ago = (t) => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+    for (const [ul, tgt] of [["#tr-recent", { a: "#tr-a", b: "#tr-b" }], ["#hub-recent", { a: "#hub-a", b: "#hub-b" }]]) {
+      const host = $(ul);
+      if (!host) continue;
+      const rs = recent.filter((r) => !savedSpecs.has(r.spec)).slice(0, 8);
+      host.innerHTML = rs.length ? "" : `<li class="empty">Every model you run shows up here automatically.</li>`;
+      for (const r of rs) host.appendChild(row(r.spec, `used ${ago(r.used)}`, tgt, false));
+    }
     for (const [ul, tgt] of [["#tr-saved", { a: "#tr-a", b: "#tr-b" }], ["#hub-saved", { a: "#hub-a", b: "#hub-b" }]]) {
       const host = $(ul);
       if (!host) continue;
-      host.innerHTML = items.length ? "" : `<li class="empty">Save models from Find models to keep them here.</li>`;
+      host.innerHTML = items.length ? "" : `<li class="empty">Press ☆ next to a model box, or on a recently used model, to keep it here.</li>`;
       for (const it of items) {
-        const li = document.createElement("li");
-        li.className = "saved";
         const m = it.meta || {};
-        li.innerHTML = `<div class="sv"><span class="t1">${esc(it.spec)}</span><span class="t2">${m.params ? `${num(m.params)} params` : ""}${m.traceable === false ? `${m.params ? ", " : ""}weights only` : ""}</span></div>
-          <button class="ghost small" data-s="a" title="Use as model A"><span class="headA">A</span></button>
-          <button class="ghost small" data-s="b" title="Use as model B"><span class="headB">B</span></button>
-          <button class="ghost small" data-x title="Remove from My models">×</button>`;
-        li.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { $(tgt[b.dataset.s]).value = it.spec; $(tgt[b.dataset.s]).dispatchEvent(new Event("change")); }));
-        li.querySelector("[data-x]").onclick = async () => { await api(`/api/models/saved?spec=${encodeURIComponent(it.spec)}`, { method: "DELETE" }); loadSaved(); };
-        host.appendChild(li);
+        const sub = [m.params ? `${num(m.params)} params` : "", m.traceable === false ? "weights only" : ""].filter(Boolean).join(", ");
+        host.appendChild(row(it.spec, sub || "saved", tgt, true));
       }
     }
   }
@@ -66,7 +112,7 @@
       try { const i = await api("/api/models/info", { method: "POST", body: { spec: v } }); if (el.value.trim() === v) o.innerHTML = describe(i); }
       catch (e) { o.innerHTML = `<span class="warn">${esc(e.message)}</span>`; }
     };
-    el.addEventListener("change", () => { clearTimeout(timers[sel]); timers[sel] = setTimeout(check, 250); });
+    el.addEventListener("change", () => { clearTimeout(timers[sel]); timers[sel] = setTimeout(check, 250); refreshStars(); });
     el.addEventListener("blur", () => el.dispatchEvent(new Event("change")));
   }
 

@@ -52,7 +52,7 @@ async function runJob(path, body, onDone, onLive) {
     try { j = await api(`/api/jobs/${id}`); } catch (e) { hideJob(); toast(e.message, true); return; }
     showJob(j);
     if (j.live && onLive) onLive(j.live);
-    if (j.state === "done") { hideJob(); onDone(j.result); }
+    if (j.state === "done") { hideJob(); onDone(j.result); if (window.Picker) window.Picker.loadSaved(); }
     else if (j.state === "error" || j.state === "stopped") { hideJob(); toast(j.error || "The job stopped.", j.state === "error"); }
     else setTimeout(tick, 700);
   };
@@ -64,6 +64,23 @@ function showJob(j) {
   $("#job-title").textContent = j.title;
   $("#job-msg").textContent = j.message;
   $("#job-meter").style.width = `${Math.round(j.progress * 100)}%`;
+}
+// Presets only fill in the model boxes; make that visible and point at the next step.
+function presetFilled(inputs, buttons, msg) {
+  for (const sel of inputs) {
+    const el = $(sel);
+    if (!el) continue;
+    el.dispatchEvent(new Event("change"));
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }
+  for (const sel of buttons) {
+    const b = $(sel);
+    if (!b) continue;
+    b.classList.remove("pulse"); void b.offsetWidth; b.classList.add("pulse");
+  }
+  const first = $(inputs[0]);
+  if (first) first.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  toast(msg);
 }
 function hideJob() { S.job = null; $("#jobbar").hidden = true; }
 $("#job-stop").onclick = async () => { if (S.job) { await api(`/api/jobs/${S.job.id}/stop`, { method: "POST" }).catch(() => {}); toast("Stopping after the current step."); } };
@@ -404,7 +421,7 @@ function renderPresets() {
   for (const p of PRESETS) {
     const li = document.createElement("li");
     li.innerHTML = `<button><span class="t1">${esc(p.t)}</span><span class="t2">${esc(p.d)}</span></button>`;
-    li.querySelector("button").onclick = () => { $("#hub-a").value = p.a; $("#hub-b").value = p.b; toast("Preset loaded. Choose weights or activations."); };
+    li.querySelector("button").onclick = () => { $("#hub-a").value = p.a; $("#hub-b").value = p.b; presetFilled(["#hub-a", "#hub-b"], ["#hub-weights", "#hub-acts"], `A and B are now ${p.a.split("/").pop()} and ${p.b.split("/").pop()}. Press Compare weights or Compare activations to run.`); };
     ul.appendChild(li);
   }
 }

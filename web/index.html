@@ -38,9 +38,9 @@
     <aside class="rail">
       <h2>Two models, one prompt</h2>
       <p class="hint">A Hugging Face name or link, a ModelScope link, a direct link to a <code>.safetensors</code> file, or a local folder. Add <code>::folder</code> for a subfolder and <code>@step3000</code> for a training checkpoint.</p>
-      <label class="stack"><span class="tag a">A</span><input id="tr-a" value="EleutherAI/pythia-70m" spellcheck="false" aria-label="Model A"></label>
+      <label class="stack"><span class="tag a">A</span><input id="tr-a" value="EleutherAI/pythia-70m" spellcheck="false" aria-label="Model A"><button type="button" class="star" data-save-for="#tr-a" title="Save to My models" aria-label="Save model A to My models">☆</button></label>
       <div class="minfo" id="tr-a-info"></div>
-      <label class="stack"><span class="tag b">B</span><input id="tr-b" value="EleutherAI/pythia-70m-seed1" spellcheck="false" aria-label="Model B"></label>
+      <label class="stack"><span class="tag b">B</span><input id="tr-b" value="EleutherAI/pythia-70m-seed1" spellcheck="false" aria-label="Model B"><button type="button" class="star" data-save-for="#tr-b" title="Save to My models" aria-label="Save model B to My models">☆</button></label>
       <div class="minfo" id="tr-b-info"></div>
       <button class="ghost wide" id="tr-find">Find a model or paste a link</button>
       <label>Prompt<textarea id="tr-prompt" rows="4">Alice has three apples and gets two more. Now Alice has</textarea></label>
@@ -52,7 +52,10 @@
       </div>
       <h2 class="mt">My models</h2>
       <ul class="runs" id="tr-saved"></ul>
+      <h2 class="mt">Recently used</h2>
+      <ul class="runs" id="tr-recent"></ul>
       <h2 class="mt">Presets</h2>
+      <p class="hint">A preset fills in A and B. Then press Trace prompt.</p>
       <ul class="presets" id="tr-presets"></ul>
       <h2 class="mt">History</h2>
       <ul class="runs" id="tr-history"><li class="empty">Traces you run appear here.</li></ul>
@@ -127,8 +130,8 @@
     <aside class="rail">
       <h2>Compare two checkpoints</h2>
       <p class="hint">Any Hugging Face model. Add <code>::folder</code> for a subfolder and <code>@step1000</code> for a revision.</p>
-      <label class="stack"><span class="tag a">A</span><input id="hub-a" value="EleutherAI/pythia-70m" spellcheck="false"></label>
-      <label class="stack"><span class="tag b">B</span><input id="hub-b" value="EleutherAI/pythia-70m-seed1" spellcheck="false"></label>
+      <label class="stack"><span class="tag a">A</span><input id="hub-a" value="EleutherAI/pythia-70m" spellcheck="false" aria-label="Model A"><button type="button" class="star" data-save-for="#hub-a" title="Save to My models" aria-label="Save model A to My models">☆</button></label>
+      <label class="stack"><span class="tag b">B</span><input id="hub-b" value="EleutherAI/pythia-70m-seed1" spellcheck="false" aria-label="Model B"><button type="button" class="star" data-save-for="#hub-b" title="Save to My models" aria-label="Save model B to My models">☆</button></label>
       <button class="ghost wide" id="hub-find">Find a model or paste a link</button>
       <div class="row2">
         <button class="primary" id="hub-weights">Compare weights</button>
@@ -142,7 +145,10 @@
       </details>
       <h2 class="mt">My models</h2>
       <ul class="runs" id="hub-saved"></ul>
+      <h2 class="mt">Recently used</h2>
+      <ul class="runs" id="hub-recent"></ul>
       <h2 class="mt">Presets</h2>
+      <p class="hint">A preset fills in A and B. Then press Compare weights or Compare activations.</p>
       <ul class="presets" id="presets"></ul>
       <h2 class="mt">History</h2>
       <ul class="runs" id="hub-history"><li class="empty">Results you run appear here.</li></ul>

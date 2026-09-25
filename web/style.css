@@ -278,3 +278,12 @@ li.saved button { padding: 2px 7px; }
 
 .seedform .conds { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 16px; margin-bottom: 8px; }
 .seedform .conds label.check { margin: 4px 0; }
+
+/* save stars, preset feedback */
+button.star { background: none; border: 0; font-size: 18px; line-height: 1; padding: 2px 4px; cursor: pointer; color: var(--muted); flex: none; }
+button.star:hover, button.star.on { color: #d49b00; }
+@keyframes flashIn { 0% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ab) 60%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+input.flash { animation: flashIn 1.6s ease-out; }
+@keyframes pulseBtn { 0%, 100% { transform: none; } 30% { transform: scale(1.04); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ab) 35%, transparent); } }
+button.pulse { animation: pulseBtn 1.2s ease-in-out 2; }
+@media (prefers-reduced-motion: reduce) { input.flash, button.pulse { animation: none; outline: 2px solid var(--ab); } }
