@@ -300,3 +300,6 @@ table.rules details summary { font-size: 12px; margin-top: 4px; }
 .worldview li { margin-bottom: 6px; }
 button.cite { font: 600 11.5px ui-monospace, "SF Mono", Menlo, monospace; color: var(--ab); background: color-mix(in srgb, var(--ab) 10%, transparent); border: 0; border-radius: 4px; padding: 0 5px; cursor: pointer; vertical-align: 1px; }
 button.cite.bad { color: #fff; background: #a3223a; }
+
+.aplist { padding-left: 20px; margin: 6px 0; font-size: 13.5px; } .aplist li { margin-bottom: 6px; }
+label.check input[type=checkbox] { flex: none; width: 15px; height: 15px; }

@@ -586,6 +586,51 @@ def anthropic_key(req: KeyReq):
     return {"has_key": bool(get_key(DATA / "settings.json"))}
 
 
+# ------------------------------------------------------------------ autopilot
+from .engine.autopilot import Autopilot
+
+autopilot = Autopilot(DATA, jobs, {"atlas": ATLAS, "lab": LAB, "engine": ENGINE})
+try:
+    autopilot.boot()
+except Exception:  # never block the server from starting
+    import traceback
+
+    traceback.print_exc()
+
+
+class CampaignReq(BaseModel):
+    models: list[str] = []
+    trajectory: bool = False
+    reprofile: bool = False
+    max_experiments: int = Field(8, ge=0, le=40)
+    seeds: list[int] = [1, 2, 3]
+    tinystories: bool = True
+    blueprint: bool = True
+    claude: bool = True
+    hours: float = Field(8, gt=0.05, le=72)
+    scale: float = Field(1.0, gt=0.05, le=4)
+
+
+@app.get("/api/autopilot")
+def autopilot_state():
+    return clean(autopilot.public())
+
+
+@app.post("/api/autopilot/start")
+def autopilot_start(req: CampaignReq):
+    try:
+        return clean(autopilot.start(req.model_dump() | {"seeds": sorted(set(req.seeds))[:5] or [1]}))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/autopilot/{action}")
+def autopilot_action(action: str):
+    if action not in ("pause", "resume", "stop"):
+        raise HTTPException(404, "Unknown action.")
+    return clean(getattr(autopilot, action)())
+
+
 # ------------------------------------------------------------------ model catalog
 @app.get("/api/models/search")
 def models_search(q: str = "", task: str = "text-generation", max_params: str = "", sort: str = "downloads", limit: int = 30, author: str = ""):

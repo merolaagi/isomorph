@@ -35,6 +35,8 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 3. *Blueprint builder*: combines the levers that held, trains against a plain model and reports capability per unit of compute.
 4. *Narrator*: writes the ledger up as a world view with Claude (Anthropic API key stored locally) or a built-in digest; every claim cites a ledger id and unknown ids are flagged.
 
+**Autopilot** (Engine → Autopilot). Runs the whole loop unattended: profiles a curated set of small models (Pythia 14M–160M and a seed variant, GPT-2, DistilGPT-2, SmolLM2-135M, optionally Pythia 410M and three Pythia training checkpoints), mines rules, chooses the most informative experiments (weakly supported rules with large possible savings first, and every lever on every task at least once), builds a blueprint from what held and writes the world view. Each step is its own queued job, so manual work can run in between; state is saved after every step and a campaign resumes after a restart or upgrade; `caffeinate` keeps the Mac awake while it runs; a time budget stops new tests and still writes the report. The report lists models profiled, new rules, status changes, every verdict and any failures.
+
 **Ground-truth lab.** Trains a family of tiny transformers on (a + b) mod p that differ only in their random seed. The correct algorithm is known (Fourier "clock" circuits), so every tool can be checked here first. For any two seeds:
 
 1. Raw weight cosine.

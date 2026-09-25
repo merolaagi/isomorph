@@ -1,7 +1,7 @@
 "use strict";
 // Engine: rules mined from measurements, experiments that test them, blueprints, world view.
 (function () {
-  const E = { L: null, meta: null, tab: "rules", focus: null, pre: null };
+  const E = { L: null, meta: null, tab: "autopilot", focus: null, pre: null, ap: null, timer: null };
   const STATUS = { holds: ["holds", "var(--ab)"], rejected: ["rejected", "var(--b)"], mixed: ["mixed", "var(--warn)"], inconclusive: ["inconclusive", "var(--warn)"],
     observed: ["observed, untested", "var(--muted)"], "needs more data": ["needs more data", "var(--muted)"] };
   const KIND = { invariant: "Invariant", "near-invariant": "Near-invariant", absence: "Absence", ordering: "Ordering", location: "Location",
@@ -42,7 +42,8 @@
     st.innerHTML = `<div class="head"><h1>Engine</h1><span class="meta">From measurements to rules to tested designs</span></div>
       <div class="subtabs" role="tablist" id="en-tabs"></div><div id="en-body"></div>`;
     const bar = $("#en-tabs");
-    for (const [k, label] of [["rules", "Rules"], ["experiments", "Experiments"], ["blueprint", "Blueprint"], ["world", "World view"]]) {
+    if (E.timer) { clearTimeout(E.timer); E.timer = null; }
+    for (const [k, label] of [["autopilot", "Autopilot"], ["rules", "Rules"], ["experiments", "Experiments"], ["blueprint", "Blueprint"], ["world", "World view"]]) {
       const b = document.createElement("button");
       b.setAttribute("role", "tab");
       b.setAttribute("aria-selected", E.tab === k);
@@ -50,7 +51,110 @@
       b.onclick = () => { E.tab = k; render(); };
       bar.appendChild(b);
     }
-    ({ rules, experiments, blueprint, world })[E.tab]($("#en-body"));
+    ({ autopilot, rules, experiments, blueprint, world })[E.tab]($("#en-body"));
+  }
+
+  // ------------------------------------------------------------ autopilot
+  const dur = (sec) => { const tot = Math.max(0, Math.round(sec / 60)); const h = Math.floor(tot / 60), m = tot % 60; return h ? `${h} h ${m} min` : `${m} min`; };
+  const stepLabel = (st) => st.type === "profile" ? `Profile ${st.spec}` : st.type === "experiment" ? `Test ${E.meta.levers[st.lever].toLowerCase()} on ${E.meta.tasks[st.task].split(",")[0].toLowerCase()}${st.rule ? ` (${st.rule})` : ""}`
+    : ({ mine: "Mine rules", plan: "Choose the most informative experiments", blueprint: "Build a blueprint from what held", narrate: "Write the world view" })[st.type] || st.type;
+
+  async function autopilot(body) {
+    let ap;
+    try { ap = await api("/api/autopilot"); } catch (e) { body.innerHTML = `<p class="warn">${esc(e.message)}</p>`; return; }
+    E.ap = ap;
+    if (E.tab !== "autopilot") return;
+    body.innerHTML = "";
+    const active = ["running", "paused", "stopping"].includes(ap.status);
+    if (active) apProgress(body, ap);
+    else apForm(body, ap);
+    if (ap.report) apReport(body, ap.report, active ? "Previous campaign" : "Latest campaign report");
+    if (active) E.timer = setTimeout(() => { if (E.tab === "autopilot" && document.querySelector("#en-body")) { autopilot($("#en-body")); refreshCounts(); } }, 5000);
+  }
+
+  async function refreshCounts() {
+    try { E.L = await api("/api/engine/ledger"); } catch { return; }
+    const R = Object.values(E.L.rules);
+    const count = (f) => R.filter(f).length;
+    $("#en-counts").innerHTML = [["Rules", R.length], ["Tested", count((r) => ["holds", "rejected", "mixed"].includes(r.status))],
+      ["Hold", count((r) => r.status === "holds")], ["Experiments", Object.keys(E.L.experiments).length]]
+      .map(([k, v]) => `<div><div class="k">${k}</div><div class="v" style="font-size:18px">${v}</div></div>`).join("");
+  }
+
+  function apForm(body, ap) {
+    const [p, b] = panel("Run the loop overnight",
+      "Autopilot profiles the models you pick, mines rules, chooses the experiments that should teach the most (rules with weak support but a large possible saving come first, and every lever gets tried on every task at least once), builds a blueprint from whatever held, and writes the world view. It keeps the Mac awake while it works, continues after a restart, and leaves a report here.");
+    const mk = (c) => `<label class="check"><input type="checkbox" data-model="${esc(c.spec)}" ${c.default && !c.profiled ? "checked" : ""}> ${esc(c.spec)} <span class="muted">${esc(c.note || "")}</span>${c.profiled ? ` <span class="badge" style="--c:var(--ab)">in library</span>` : ""}</label>`;
+    b.innerHTML = `<h3 style="margin-top:4px">Models to profile</h3><div class="conds">${ap.curated.map(mk).join("")}</div>
+      <label class="check"><input type="checkbox" id="ap-traj"> Add Pythia 70M at three training checkpoints (steps 1,000, 8,000 and 33,000) to see which patterns form first</label>
+      <label>More models, one per line (names, links or folders)<textarea id="ap-extra" rows="2" placeholder="owner/name"></textarea></label>
+      <h3>Experiments</h3>
+      <div class="grid-form" style="grid-template-columns:repeat(4,1fr);max-width:900px">
+        <label>Most experiments<input id="ap-max" type="number" value="8" min="0" max="40"></label>
+        <label>Seeds each<input id="ap-seeds" value="1, 2, 3"></label>
+        <label>Training length (× default)<input id="ap-scale" type="number" value="1" step="0.25" min="0.25" max="4"></label>
+        <label>Time budget (hours)<input id="ap-hours" type="number" value="8" step="0.5" min="0.5" max="72"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="ap-ts" checked> Include TinyStories language-model tests (slower, closest to real language)</label>
+      <label class="check"><input type="checkbox" id="ap-bp" checked> Build a blueprint from the levers that hold</label>
+      <label class="check"><input type="checkbox" id="ap-claude" ${E.meta && E.meta.has_anthropic_key ? "checked" : "disabled"}> Have Claude write the world view${E.meta && E.meta.has_anthropic_key ? "" : " (add an API key on the left first; otherwise the built-in digest is used)"}</label>
+      <label class="check"><input type="checkbox" id="ap-re"> Profile models again even if they are already in the library</label>
+      <button class="primary" id="ap-go" style="margin-top:12px">Start the campaign</button>
+      <p class="sub" id="ap-est" style="margin-top:8px"></p>`;
+    body.appendChild(p);
+    const estimate = () => {
+      const n = b.querySelectorAll("[data-model]:checked").length + ($("#ap-traj").checked ? 3 : 0) + $("#ap-extra").value.split("\n").filter((x) => x.trim()).length;
+      const ex = parseInt($("#ap-max").value, 10) || 0, seeds = $("#ap-seeds").value.split(/[\s,]+/).filter(Boolean).length || 1, sc = parseFloat($("#ap-scale").value) || 1;
+      const mins = n * 4 + ex * seeds * 2 * 1.5 * sc * ($("#ap-ts").checked ? 2 : 1) + ($("#ap-bp").checked ? 20 * sc : 0);
+      $("#ap-est").textContent = `Rough estimate on an Apple-silicon Mac: ${dur(mins * 60)} (profiling about 4 min per small model; larger models and TinyStories take longer). The budget stops new tests when time runs out and still writes the report.`;
+    };
+    b.querySelectorAll("input,textarea").forEach((el) => el.addEventListener("input", estimate));
+    estimate();
+    $("#ap-go").onclick = async () => {
+      const models = [...b.querySelectorAll("[data-model]:checked")].map((c) => c.dataset.model).concat($("#ap-extra").value.split("\n").map((x) => x.trim()).filter(Boolean));
+      const cfg = { models, trajectory: $("#ap-traj").checked, reprofile: $("#ap-re").checked, max_experiments: parseInt($("#ap-max").value, 10) || 0,
+        seeds: $("#ap-seeds").value.split(/[\s,]+/).filter(Boolean).map(Number), scale: parseFloat($("#ap-scale").value) || 1,
+        hours: parseFloat($("#ap-hours").value) || 8, tinystories: $("#ap-ts").checked, blueprint: $("#ap-bp").checked, claude: $("#ap-claude").checked };
+      try { await api("/api/autopilot/start", { method: "POST", body: cfg }); toast("Campaign started. You can close this page; it keeps running."); render(); }
+      catch (e) { toast(e.message, true); }
+    };
+  }
+
+  function apProgress(body, ap) {
+    const done = ap.done.length, left = ap.queue.length + (ap.current ? 1 : 0);
+    const el = (Date.now() / 1000 - ap.started), budget = ap.deadline - Date.now() / 1000;
+    const [p, b] = panel(`Campaign ${ap.status === "paused" ? "paused" : ap.status === "stopping" ? "stopping" : "running"}`,
+      `Started ${new Date(ap.started * 1000).toLocaleString()}, ${dur(el)} ago. ${budget > 0 ? `${dur(budget)} of the time budget left.` : "Time budget used up; wrapping up."} It keeps running with this page closed.`);
+    b.innerHTML = `<div class="kv"><div><div class="k">Steps done</div><div class="v">${done}</div></div><div><div class="k">Steps left</div><div class="v">${left}</div></div>
+      <div><div class="k">Failed</div><div class="v">${ap.done.filter((d) => !d.ok).length}</div></div></div>
+      <div class="meter" style="width:100%;margin:14px 0"><div style="width:${(done / Math.max(1, done + left)) * 100}%"></div></div>
+      <p><b>Now:</b> ${ap.current ? `${esc(stepLabel(ap.current))}, for ${dur(Date.now() / 1000 - ap.current.started)}` : ap.status === "paused" ? "paused between steps" : "starting the next step"}</p>
+      <div class="pk-row">${ap.status === "paused" ? `<button class="primary" data-a="resume">Resume</button>` : ap.status === "running" ? `<button class="ghost" data-a="pause">Pause after this step</button>` : ""}
+      ${ap.status !== "stopping" ? `<button class="ghost" data-a="stop">Stop and write the report</button>` : ""}</div>
+      <div class="two" style="margin-top:14px"><div><h3>Next</h3><ol class="aplist">${ap.queue.slice(0, 14).map((q) => `<li>${esc(stepLabel(q))}</li>`).join("") || "<li class='muted'>Nothing queued</li>"}${ap.queue.length > 14 ? `<li class="muted">and ${ap.queue.length - 14} more</li>` : ""}</ol></div>
+      <div><h3>Done</h3><ul class="aplist">${ap.done.slice().reverse().slice(0, 14).map((d) => `<li><span style="color:${d.ok ? "var(--ab)" : "var(--b)"}">${d.ok ? "✓" : "✗"}</span> ${esc(stepLabel(d))}<div class="sub" style="margin:0">${esc((d.info || "").slice(0, 160))}</div></li>`).join("") || "<li class='muted'>Nothing yet</li>"}</ul></div></div>
+      <details><summary>Log</summary><div class="hex" style="max-height:240px;overflow:auto">${ap.log.slice().reverse().map((l) => `${new Date(l.t * 1000).toLocaleTimeString()}  ${esc(l.msg)}`).join("\n")}</div></details>`;
+    b.querySelectorAll("[data-a]").forEach((x) => (x.onclick = async () => { await api(`/api/autopilot/${x.dataset.a}`, { method: "POST" }).catch((e) => toast(e.message, true)); render(); }));
+    body.appendChild(p);
+  }
+
+  function apReport(body, r, title) {
+    const [p, b] = panel(`${title}: ${r.how === "done" ? "finished" : r.how}`, `${new Date(r.started * 1000).toLocaleString()} to ${new Date(r.finished * 1000).toLocaleString()} (${dur(r.hours * 3600)}).`);
+    p.style.marginTop = "18px";
+    let f = `Profiled ${r.profiled.length} model${r.profiled.length === 1 ? "" : "s"}${r.skipped_profiles.length ? ` (${r.skipped_profiles.length} already in the library)` : ""}, found ${r.new_rules.length} new rule${r.new_rules.length === 1 ? "" : "s"}, and ran ${r.experiments.length} experiment${r.experiments.length === 1 ? "" : "s"}: <b class="cab">${r.holds} held</b>, ${r.rejected} rejected, ${r.experiments.length - r.holds - r.rejected} inconclusive.`;
+    if (r.blueprints.length) {
+      const best = r.blueprints.flatMap((bp) => bp.results).filter((x) => x.cpc).sort((a, c) => c.cpc - a.cpc)[0];
+      if (best) f += ` The blueprint's best result was ${fmt(best.cpc, 2)}× capability per unit of compute on ${esc(best.task.split(",")[0].toLowerCase())}.`;
+    }
+    if (r.failed.length) f += ` ${r.failed.length} step${r.failed.length === 1 ? "" : "s"} failed; see below.`;
+    b.innerHTML = `<p class="finding" style="font-size:18px;margin-top:0">${f}</p>
+      ${r.experiments.length ? `<h3>Experiments</h3><table><tbody>${r.experiments.map((x) => `<tr><td>${badge(x.verdict)}</td><td>${esc(x.label)}<div class="sub" style="margin:0">${esc(x.reason)}</div></td><td class="rid">${x.id}</td></tr>`).join("")}</tbody></table>` : ""}
+      ${r.changed.length ? `<h3 style="margin-top:14px">Rules that changed status</h3><ul class="aplist">${r.changed.map((x) => `<li><span class="rid">${x.id}</span> ${esc(x.statement)}: ${esc(x.before)} → <b>${esc(x.after)}</b></li>`).join("")}</ul>` : ""}
+      ${r.new_rules.length ? `<details><summary>New rules (${r.new_rules.length})</summary><ul class="aplist">${r.new_rules.map((x) => `<li><span class="rid">${x.id}</span> ${esc(x.statement)}</li>`).join("")}</ul></details>` : ""}
+      ${r.failed.length ? `<h3 style="margin-top:14px">Failed steps</h3><ul class="aplist">${r.failed.map((x) => `<li>${esc(x.step)}<div class="sub warn" style="margin:0">${esc(x.info)}</div></li>`).join("")}</ul>` : ""}
+      <div class="pk-row" style="margin-top:12px"><button class="ghost" data-go="rules">Open the rules</button>${r.world_view ? `<button class="ghost" data-go="world">Read the world view</button>` : ""}</div>`;
+    b.querySelectorAll("[data-go]").forEach((x) => (x.onclick = () => { E.tab = x.dataset.go; refresh(false); }));
+    body.appendChild(p);
   }
 
   // ------------------------------------------------------------ rules

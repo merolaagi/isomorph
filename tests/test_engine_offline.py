@@ -24,3 +24,31 @@ def test_engine():
 
 if __name__ == "__main__":
     test_engine()
+
+
+def test_autopilot_resume():
+    import time
+    from server.jobs import JobQueue
+    from server.engine.autopilot import Autopilot
+    d = pathlib.Path(tempfile.mkdtemp())
+    dirs = {"atlas": d / "atlas", "lab": d / "lab", "engine": d / "engine"}
+    for x in dirs.values():
+        x.mkdir(parents=True)
+    ap = Autopilot(d, JobQueue(), dirs)
+    s = ap.state()
+    s.update(status="running", current={"type": "mine", "started": time.time()}, queue=[{"type": "plan"}], done=[], deadline=time.time() + 3600,
+             snapshot={"rules": {}, "experiments": [], "blueprints": []}, config={"claude": False, "max_experiments": 1, "seeds": [1], "scale": 0.05, "tinystories": False, "blueprint": False})
+    ap._save(s)
+    ap2 = Autopilot(d, JobQueue(), dirs)
+    ap2.boot()
+    for _ in range(300):
+        if ap2.state()["status"] != "running":
+            break
+        time.sleep(1)
+    st = ap2.state()
+    assert st["status"] == "done" and st["report"] and st["done"][0]["type"] == "mine", st["status"]
+    print("autopilot ok", [(x["type"], x["ok"]) for x in st["done"]])
+
+
+if __name__ == "__main__":
+    test_autopilot_resume()
