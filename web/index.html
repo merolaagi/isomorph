@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Isomorph</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='12' cy='16' r='9' fill='%232446C7' fill-opacity='.85'/><circle cx='20' cy='16' r='9' fill='%23C23A6B' fill-opacity='.85'/></svg>">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 40 24" width="40" height="24" aria-hidden="true"><circle cx="14" cy="12" r="10" class="ca"/><circle cx="26" cy="12" r="10" class="cb"/></svg>
+    <span>Isomorph</span>
+  </div>
+  <nav role="tablist">
+    <button role="tab" data-view="lab" aria-selected="true">Ground-truth lab</button>
+    <button role="tab" data-view="hub" aria-selected="false">Real models</button>
+    <button role="tab" data-view="about" aria-selected="false">How it works</button>
+  </nav>
+  <div class="env" id="env">Connecting…</div>
+</header>
+
+<div class="jobbar" id="jobbar" hidden>
+  <div class="jobbar-text"><strong id="job-title"></strong><span id="job-msg"></span></div>
+  <div class="meter"><div id="job-meter"></div></div>
+  <button class="ghost small" id="job-stop">Stop</button>
+</div>
+
+<main>
+  <!-- LAB -->
+  <section class="view" id="view-lab">
+    <aside class="rail">
+      <h2>Train a family</h2>
+      <p class="hint">Several tiny transformers learn (a + b) mod p. Only their random seed differs, so any difference you find is a different route to the same answer.</p>
+      <form id="train-form" class="grid-form">
+        <label>Modulus p<input name="p" type="number" value="53" min="7" max="127"></label>
+        <label>Seeds<input name="seeds" value="1, 2, 3, 4"></label>
+        <label>Steps per seed<input name="steps" type="number" value="5000" min="100" step="100"></label>
+        <label>Training fraction<input name="train_frac" type="number" value="0.5" step="0.05" min="0.1" max="0.9"></label>
+        <details class="span2">
+          <summary>Architecture and optimiser</summary>
+          <div class="grid-form inner">
+            <label>Width<input name="d_model" type="number" value="128"></label>
+            <label>Heads<input name="n_heads" type="number" value="4"></label>
+            <label>MLP neurons<input name="d_mlp" type="number" value="512"></label>
+            <label>Learning rate<input name="lr" type="number" value="0.001" step="0.0001"></label>
+            <label>Weight decay<input name="wd" type="number" value="1.0" step="0.1"></label>
+          </div>
+        </details>
+        <button class="primary span2" type="submit">Train family</button>
+      </form>
+      <h2 class="mt">Runs</h2>
+      <ul class="runs" id="runs"><li class="empty">No runs yet. Train a family to start.</li></ul>
+    </aside>
+    <div class="stage" id="lab-stage">
+      <div class="intro">
+        <p class="lede">Two networks solve the same problem. Are they the same solution in different coordinates, or genuinely different machines?</p>
+        <p>The lab answers this where the correct algorithm is known. Train a family on the left, then compare any two members step by step: raw weights, weights after removing symmetries that change nothing, and finally after the symmetries of the problem itself.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- HUB -->
+  <section class="view" id="view-hub" hidden>
+    <aside class="rail">
+      <h2>Compare two checkpoints</h2>
+      <p class="hint">Any Hugging Face model. Add <code>::folder</code> for a subfolder and <code>@step1000</code> for a revision.</p>
+      <label class="stack"><span class="tag a">A</span><input id="hub-a" value="EleutherAI/pythia-70m" spellcheck="false"></label>
+      <label class="stack"><span class="tag b">B</span><input id="hub-b" value="EleutherAI/pythia-70m-seed1" spellcheck="false"></label>
+      <div class="row2">
+        <button class="primary" id="hub-weights">Compare weights</button>
+        <button class="primary alt" id="hub-acts">Compare activations</button>
+      </div>
+      <details>
+        <summary>Probe texts and token budget</summary>
+        <p class="hint">One text per blank-line-separated block. Leave empty to use the built-in mix of prose, arithmetic and code.</p>
+        <textarea id="hub-texts" rows="6" placeholder="Leave empty for the built-in corpus"></textarea>
+        <label>Tokens to compare<input id="hub-tokens" type="number" value="1500" min="100" max="6000" step="100"></label>
+      </details>
+      <h2 class="mt">Presets</h2>
+      <ul class="presets" id="presets"></ul>
+      <h2 class="mt">History</h2>
+      <ul class="runs" id="hub-history"><li class="empty">Results you run appear here.</li></ul>
+    </aside>
+    <div class="stage" id="hub-stage">
+      <div class="intro">
+        <p class="lede">Real models, same questions.</p>
+        <p><strong>Compare weights</strong> reads the checkpoint files directly and works for any architecture that shares tensor names, including custom ones such as Laya. <strong>Compare activations</strong> runs both models on the same text and checks whether their layers, neurons and predictions line up. It needs checkpoints that the transformers library can load.</p>
+        <p>The PolyPythia presets are the cleanest experiments available: identical models and data, with only the random seed, the data order or the initialisation changed.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ABOUT -->
+  <section class="view" id="view-about" hidden>
+    <article class="prose">
+      <h1>Why raw weights can't be compared</h1>
+      <p>Take any trained network and swap two hidden neurons, along with their incoming and outgoing weights. Nothing about its behaviour changes, yet the weight matrices now look different. A transformer has far more of these free choices: the neuron order in every MLP, the order of attention heads, an arbitrary basis inside each head, and a rotation of the whole residual stream when there is no LayerNorm to pin it. Two networks can be the same machine and still have raw weight cosine near zero.</p>
+      <p>So Isomorph compares in steps, and each step removes one kind of freedom.</p>
+      <h2>The ladder</h2>
+      <ol>
+        <li><strong>Raw weights.</strong> Cosine similarity of the parameters as stored.</li>
+        <li><strong>Weight symmetries removed.</strong> B is rewritten in A's coordinates: one orthogonal rotation of the residual stream (fit by Procrustes on activations), a head permutation (matched on the basis-free circuits W<sub>Q</sub>W<sub>K</sub><sup>T</sup> and W<sub>V</sub>W<sub>O</sub>), an orthogonal basis inside each head, and a neuron permutation (Hungarian matching on activation correlation). The app checks that B's outputs did not move.</li>
+        <li><strong>Task symmetries removed.</strong> The problem itself has symmetries. For addition mod p, multiplying every number by a unit u gives another valid way to compute the same thing, and it turns a clock circuit at frequency k into one at frequency k·u. So two models that picked different frequencies can still be built from identical parts. The app relabels B's inputs and matches its circuits one frequency at a time, against a null of relabellings that should not line up.</li>
+      </ol>
+      <h2>Functional tests</h2>
+      <p><strong>Linear interpolation</strong> walks the straight line from A's weights to B's. A flat path means they sit in the same basin; a bump means the path crosses a region of high loss. Doing it after alignment tests whether the symmetries were the only thing separating them.</p>
+      <p><strong>Stitching</strong> takes A's internal state at some point, maps it into B's space, and lets B finish the computation. If B still gets the right answer, the two models were carrying the same information at that point. Note that stitching at the token embedding is almost always easy, since a handful of tokens in a wide space can be mapped anywhere.</p>
+      <p><strong>CKA and mutual nearest neighbours</strong> ask whether two layers organise the inputs the same way, ignoring rotation and scale.</p>
+      <h2>Where the savings would come from</h2>
+      <p>If different runs keep converging to the same parts, those parts are worth knowing in advance. The compression probe in the lab shows how few embedding directions a trained model actually needs. On real models, a low-rank difference between a base and its fine-tune means the update could have been trained and stored as a small adapter instead of a full copy.</p>
+      <h2>Related projects</h2>
+      <p><a href="https://github.com/NandhaKishorM/laya" target="_blank" rel="noopener">Laya</a> ships a base checkpoint and a fine-tuned one with the same encoder, which makes it a natural base-versus-fine-tune pair for the weight comparison. <a href="https://github.com/JustVugg/colibri" target="_blank" rel="noopener">Colibri</a> is an inference engine for very large mixture-of-experts models; its measured expert atlas is a different angle on the same question, showing that routing inside one model has stable, cacheable structure.</p>
+    </article>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="/static/charts.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

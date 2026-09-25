@@ -1,0 +1,9 @@
+torch>=2.3
+numpy>=1.26
+scipy>=1.11
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6
+transformers>=4.44
+huggingface_hub>=0.24
+safetensors>=0.4

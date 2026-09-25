@@ -1,0 +1,64 @@
+# Isomorph
+
+Two networks solve the same problem. Are they the same solution in different coordinates, or genuinely different machines?
+
+Isomorph is a local research bench for answering that. Raw weights can't be compared directly: you can shuffle neurons, reorder heads or rotate the residual stream without changing a single output. So Isomorph compares models up to symmetry, in steps.
+
+## Install and run (macOS)
+
+```bash
+mkdir -p ~/Sites && tar -xzf ~/Downloads/isomorph-v*.tar.gz -C ~/Sites && cd ~/Sites/isomorph && ./setup.sh && ./run.sh
+```
+
+`setup.sh` creates `.venv` and installs dependencies (torch is the big one). `run.sh` starts the server on http://127.0.0.1:47821 and opens it. Upgrades extract over the same folder; your runs in `data/` and the `.venv` are kept, and `setup.sh` only reinstalls when `requirements.txt` changes.
+
+Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken), `ISOMORPH_DEVICE` (`auto`, `cpu`, `mps`), `ISOMORPH_DATA`, `HF_TOKEN` for gated models.
+
+## What it does
+
+**Ground-truth lab.** Trains a family of tiny transformers on (a + b) mod p that differ only in their random seed. The correct algorithm is known (Fourier "clock" circuits), so every tool can be checked here first. For any two seeds:
+
+1. Raw weight cosine.
+2. After removing weight symmetries: residual rotation (Procrustes), head permutation (matched on basis-free QK and OV circuits), per-head orthogonal basis, and MLP neuron permutation (Hungarian on activation correlation). B's outputs are checked to be unchanged.
+3. After removing the task's own symmetry: multiplying every number by a unit u mod p maps one correct algorithm to another and moves a circuit from frequency k to k·u. Circuits are matched frequency by frequency against a null of relabellings that should not line up.
+
+Plus linear interpolation (before and after alignment), stitching, site-by-site CKA, frequency fingerprints and a compression probe.
+
+**Real models.** Any Hugging Face checkpoint, written `repo`, `repo::subfolder` or `repo@revision`.
+- *Compare weights* reads checkpoint files directly, so it works for custom architectures (for example Laya). It reports cosine, singular-value shape per matrix and whether the difference is low-rank.
+- *Compare activations* runs both models on the same texts: layer-by-layer CKA and mutual nearest neighbours, one-to-one MLP neuron matching, next-token agreement and stitching.
+
+Presets cover PolyPythia seeds, data-order-only and init-only variants, early vs final checkpoints, GPT-2 vs Pythia, and Laya base vs its typed-decisions fine-tune.
+
+## First result
+
+Three seeds on p = 53. Seeds 1 and 3 score 0.003 raw cosine, 0.50 after weight symmetries, and their circuits match at about 0.77 average neuron correlation after relabelling by the task symmetry, against about 0.12 for the null. They use different frequencies built from the same parts. Each model keeps 96–99% accuracy using only 11–13 of 53 embedding directions.
+
+## Layout
+
+```
+server/app.py        API and static files
+server/jobs.py       single-worker job queue
+server/metrics.py    CKA, Procrustes, matching, spectra
+server/lab/          tiny transformer, training, analyses
+server/hub/          checkpoint loading, weight and activation comparison
+web/                 interface (no build step, no JS dependencies)
+tests/               python3 tests/test_lab.py, python3 tests/test_hub_offline.py
+scripts/push.sh      commit and push to GitHub (merolaagi/isomorph)
+scripts/package.sh   build a uniquely named release archive
+```
+
+## Publish
+
+```bash
+./scripts/push.sh
+```
+
+Creates the public repo with the GitHub CLI on first run (`gh auth login` once), then commits, tags `v<version>` and pushes.
+
+## Related
+
+- [Laya](https://github.com/NandhaKishorM/laya): base and fine-tuned checkpoints on one encoder, a natural base-vs-fine-tune pair.
+- [Colibri](https://github.com/JustVugg/colibri): MoE inference engine whose expert atlas shows measurable routing structure inside one model.
+
+Apache-2.0

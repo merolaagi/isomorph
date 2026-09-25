@@ -1,0 +1,263 @@
+"""Isomorph server: a local research bench for comparing neural networks."""
+import json
+import os
+import platform
+import re
+import shutil
+import time
+from pathlib import Path
+
+import torch
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+from .jobs import JobQueue
+
+ROOT = Path(__file__).resolve().parents[1]
+DATA = Path(os.environ.get("ISOMORPH_DATA", ROOT / "data"))
+LAB = DATA / "lab"
+HUB = DATA / "hub"
+for d in (LAB, HUB):
+    d.mkdir(parents=True, exist_ok=True)
+VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "dev"
+
+app = FastAPI(title="Isomorph", version=VERSION)
+jobs = JobQueue()
+
+
+def _safe_id(s):
+    if not re.fullmatch(r"[A-Za-z0-9_\-]+", s or ""):
+        raise HTTPException(400, "Invalid id.")
+    return s
+
+
+# ------------------------------------------------------------------ general
+@app.get("/api/health")
+def health():
+    from .hub.load import device
+
+    return {"version": VERSION, "torch": torch.__version__, "device": device(), "python": platform.python_version(),
+            "threads": torch.get_num_threads(), "data": str(DATA)}
+
+
+@app.get("/api/jobs/{job_id}")
+def job_status(job_id: str):
+    j = jobs.jobs.get(job_id)
+    if not j:
+        raise HTTPException(404, "No such job. The server may have restarted.")
+    return j.public()
+
+
+@app.post("/api/jobs/{job_id}/stop")
+def job_stop(job_id: str):
+    j = jobs.stop(job_id)
+    if not j:
+        raise HTTPException(404, "No such job.")
+    return j.public(with_result=False)
+
+
+@app.get("/api/jobs")
+def job_list():
+    return [j.public(with_result=False) for j in sorted(jobs.jobs.values(), key=lambda j: -j.created)][:30]
+
+
+# ------------------------------------------------------------------ lab
+class TrainReq(BaseModel):
+    p: int = Field(53, ge=7, le=127)
+    seeds: list[int] = [1, 2, 3, 4]
+    steps: int = Field(4000, ge=100, le=50000)
+    train_frac: float = Field(0.4, gt=0.05, lt=0.95)
+    d_model: int = Field(128, ge=16, le=512)
+    n_heads: int = Field(4, ge=1, le=16)
+    d_mlp: int = Field(512, ge=16, le=4096)
+    lr: float = 1e-3
+    wd: float = 1.0
+    name: str = ""
+
+
+@app.post("/api/lab/train")
+def lab_train(req: TrainReq):
+    from .lab.train import train_family
+
+    if req.d_model % req.n_heads:
+        raise HTTPException(400, "Model width must be divisible by the number of heads.")
+    seeds = sorted(set(req.seeds))
+    if not 2 <= len(seeds) <= 12:
+        raise HTTPException(400, "Train between 2 and 12 seeds so there is something to compare.")
+    run_id = time.strftime("%Y%m%d-%H%M%S") + f"-p{req.p}"
+    cfg = req.model_dump() | {"seeds": seeds, "run_id": run_id, "created": time.time()}
+
+    def work(update, stopped):
+        train_family(LAB / run_id, cfg, update, stopped)
+        return {"run_id": run_id}
+
+    j = jobs.submit("train", f"Train {len(seeds)} seeds on (a + b) mod {req.p}", work)
+    return {"job": j.id, "run_id": run_id}
+
+
+@app.get("/api/lab/runs")
+def lab_runs():
+    out = []
+    for d in sorted(LAB.iterdir(), reverse=True):
+        cp = d / "config.json"
+        if not cp.exists():
+            continue
+        cfg = json.loads(cp.read_text())
+        seeds = sorted(int(f.stem.split("_")[1]) for f in d.glob("seed_*.pt"))
+        out.append({"run_id": d.name, "config": cfg, "trained_seeds": seeds,
+                    "complete": len(seeds) == len(cfg.get("seeds", [])), "has_report": (d / "family.json").exists()})
+    return out
+
+
+@app.delete("/api/lab/runs/{run_id}")
+def lab_delete(run_id: str):
+    d = LAB / _safe_id(run_id)
+    if not d.exists():
+        raise HTTPException(404, "No such run.")
+    shutil.rmtree(d)
+    return {"deleted": run_id}
+
+
+def _run(run_id):
+    from .lab.analyze import Run
+
+    d = LAB / _safe_id(run_id)
+    if not (d / "config.json").exists():
+        raise HTTPException(404, "No such run.")
+    if len(list(d.glob("seed_*.pt"))) < 2:
+        raise HTTPException(400, "This run has fewer than two trained models.")
+    return Run(d)
+
+
+class FamilyReq(BaseModel):
+    run_id: str
+    refresh: bool = False
+
+
+@app.post("/api/lab/family")
+def lab_family(req: FamilyReq):
+    from .lab.analyze import family_report
+
+    d = LAB / _safe_id(req.run_id)
+    cache = d / "family.json"
+    if cache.exists() and not req.refresh:
+        return {"result": json.loads(cache.read_text())}
+
+    def work(update, stopped):
+        update(0.1, "Loading models")
+        r = family_report(_run(req.run_id))
+        cache.write_text(json.dumps(r))
+        return r
+
+    return {"job": jobs.submit("family", f"Survey run {req.run_id}", work).id}
+
+
+class PairReq(BaseModel):
+    run_id: str
+    a: int
+    b: int
+    refresh: bool = False
+
+
+@app.post("/api/lab/pair")
+def lab_pair(req: PairReq):
+    from .lab.analyze import pair_report
+
+    if req.a == req.b:
+        raise HTTPException(400, "Pick two different seeds.")
+    d = LAB / _safe_id(req.run_id)
+    cache = d / f"pair_{req.a}_{req.b}.json"
+    if cache.exists() and not req.refresh:
+        return {"result": json.loads(cache.read_text())}
+
+    def work(update, stopped):
+        update(0.1, "Aligning model B to model A")
+        run = _run(req.run_id)
+        if req.a not in run.models or req.b not in run.models:
+            raise ValueError("Both seeds must be trained in this run.")
+        r = pair_report(run, req.a, req.b)
+        cache.write_text(json.dumps(r))
+        return r
+
+    return {"job": jobs.submit("pair", f"Compare seed {req.a} with seed {req.b}", work).id}
+
+
+# ------------------------------------------------------------------ hub
+class HubReq(BaseModel):
+    a: str
+    b: str
+    texts: list[str] | None = None
+    max_tokens: int = Field(1500, ge=100, le=6000)
+
+
+def _save_hub(kind, req, result):
+    rid = time.strftime("%Y%m%d-%H%M%S") + "-" + kind
+    blob = {"id": rid, "kind": kind, "a": req.a, "b": req.b, "created": time.time(), "result": result}
+    (HUB / f"{rid}.json").write_text(json.dumps(blob))
+    return blob
+
+
+@app.post("/api/hub/weights")
+def hub_weights(req: HubReq):
+    from .hub.load import align_names, fetch_weights
+    from .hub.weights import weight_report
+
+    def work(update, stopped):
+        wa = fetch_weights(req.a, lambda f, m: update(0.02 + 0.28 * f, m))
+        if stopped():
+            raise InterruptedError("Stopped.")
+        wb = fetch_weights(req.b, lambda f, m: update(0.3 + 0.28 * f, m))
+        pairs = align_names(wa, wb)
+        if not pairs:
+            raise ValueError("These checkpoints share no tensor names, so there is nothing to pair. Try the activation comparison instead.")
+        r = weight_report(wa, wb, pairs, lambda f, m: update(0.6 + 0.4 * f, m))
+        return _save_hub("weights", req, r)
+
+    return {"job": jobs.submit("hub-weights", f"Weights: {req.a} vs {req.b}", work).id}
+
+
+@app.post("/api/hub/activations")
+def hub_acts(req: HubReq):
+    from .hub.acts import activation_report
+
+    def work(update, stopped):
+        r = activation_report(req.a, req.b, req.texts, req.max_tokens, update)
+        return _save_hub("activations", req, r)
+
+    return {"job": jobs.submit("hub-acts", f"Activations: {req.a} vs {req.b}", work).id}
+
+
+@app.get("/api/hub/history")
+def hub_history():
+    out = []
+    for f in sorted(HUB.glob("*.json"), reverse=True)[:50]:
+        b = json.loads(f.read_text())
+        out.append({"id": b["id"], "kind": b["kind"], "a": b["a"], "b": b["b"], "created": b["created"]})
+    return out
+
+
+@app.get("/api/hub/history/{rid}")
+def hub_item(rid: str):
+    f = HUB / f"{_safe_id(rid)}.json"
+    if not f.exists():
+        raise HTTPException(404, "No such result.")
+    return json.loads(f.read_text())
+
+
+@app.get("/api/hub/corpus")
+def hub_corpus():
+    from .hub.corpus import CORPUS
+
+    return {"texts": CORPUS}
+
+
+# ------------------------------------------------------------------ static
+WEB = ROOT / "web"
+app.mount("/static", StaticFiles(directory=WEB), name="static")
+
+
+@app.get("/")
+def index():
+    return FileResponse(WEB / "index.html")
