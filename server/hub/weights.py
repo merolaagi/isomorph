@@ -36,7 +36,14 @@ def _layer_of(name):
     return int(m.group(1)) if m else None
 
 
+BUFFER_RE = re.compile(r"(masked_bias|inv_freq|rotary_emb|(^|\.)(attn|attention)\.bias$)")
+
+
 def _kind(name):
+    """Coarse role of a tensor. 'buffer' marks stored constants that are not
+    learned: causal-mask tables, masked-bias fillers, rotary frequencies."""
+    if BUFFER_RE.search(name):
+        return "buffer"
     n = name.lower()
     for key, label in (("lm_head", "unembedding"), ("embed_out", "unembedding"), ("embed", "embedding"),
                        ("wte", "embedding"), ("wpe", "embedding"), ("norm", "norm"), ("ln", "norm"), ("attn", "attention"),
@@ -55,7 +62,7 @@ def weight_report(wa, wb, pairs, progress=lambda f, m: None):
     n_common = 0
     for i, (ka, kb) in enumerate(pairs):
         a, b = wa[ka], wb[kb]
-        if a.shape != b.shape:
+        if a.shape != b.shape or _kind(ka) == "buffer":
             continue
         if i % 8 == 0:
             progress(i / max(1, len(pairs)), f"Comparing {ka}")

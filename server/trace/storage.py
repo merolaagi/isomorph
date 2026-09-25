@@ -119,7 +119,7 @@ def storage_report(spec, progress=lambda f, m: None):
                     row = {"name": tname, "file": name, "dtype": info["dtype"], "shape": info["shape"], "numel": numel,
                            "offset": data_start + a, "bytes": b - a, "kind": _kind(tname), "layer": _layer_of(tname)}
                     tensors.append(row)
-                    if preview is None and len(info["shape"]) == 2 and info["dtype"] in ("F32", "F16", "BF16"):
+                    if preview is None and len(info["shape"]) == 2 and info["dtype"] in ("F32", "F16", "BF16") and _kind(tname) != "buffer":
                         vals = _decode(head, info["dtype"])[:8]
                         preview = {"tensor": tname, "file": name, "dtype": info["dtype"], "offset": data_start + a,
                                    "header_len": n, "header_prefix": first8.hex(" "),
@@ -145,7 +145,7 @@ def storage_report(spec, progress=lambda f, m: None):
                                 "offset": None, "bytes": t.numel() * t.element_size(), "kind": _kind(k), "layer": _layer_of(k)})
                 if t.is_floating_point():
                     values_by_kind.setdefault(_kind(k), []).append(t.float().flatten())
-                    if preview is None and t.ndim == 2:
+                    if preview is None and t.ndim == 2 and _kind(k) != "buffer":
                         v = t.flatten()[:8].float().tolist()
                         preview = {"tensor": k, "file": name, "dtype": dt, "values": v, "bits": _float_bits(v[0], dt)}
 
@@ -166,8 +166,16 @@ def storage_report(spec, progress=lambda f, m: None):
         dtypes[t["dtype"]] = dtypes.get(t["dtype"], 0) + t["numel"]
 
     hists = []
+    nonfinite = 0
     for kind, parts in values_by_kind.items():
+        if kind == "buffer":
+            continue
         v = torch.cat(parts)
+        fin = torch.isfinite(v)
+        nonfinite += int((~fin).sum())
+        v = v[fin]
+        if v.numel() == 0:
+            continue
         if v.numel() > 2_000_000:
             v = v[torch.randperm(v.numel(), generator=torch.Generator().manual_seed(0))[:2_000_000]]
         v = v.numpy()
@@ -183,4 +191,5 @@ def storage_report(spec, progress=lambda f, m: None):
         "metadata": meta, "tensors": tensors, "by_kind": sorted(by_kind.values(), key=lambda k: -k["bytes"]),
         "by_layer": [{"layer": k, "params": v} for k, v in sorted(by_layer.items())], "dtypes": dtypes,
         "preview": preview, "zip_entries": zip_entries, "histograms": sorted(hists, key=lambda h: h["kind"]),
+        "buffers": [t["name"] for t in tensors if t["kind"] == "buffer"], "nonfinite": nonfinite,
     }

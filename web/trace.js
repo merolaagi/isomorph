@@ -89,7 +89,7 @@
     const topA = A.lens[A.layers].top[last][0], topB = B.lens[B.layers].top[B.tokens.length - 1][0];
     let s = `After “${esc(r.prompt.slice(-60))}”, <b class="ca">A</b> predicts <b class="ca">“${esc(tokLabel(topA.t))}”</b> (${pct(topA.p)}) and <b class="cb">B</b> predicts <b class="cb">“${esc(tokLabel(topB.t))}”</b> (${pct(topB.p)}). `;
     if (r.divergence.length) {
-      const js = r.divergence.map((x) => x.js.reduce((a, b) => a + b, 0) / x.js.length);
+      const js = r.divergence.map((x, i) => (i === 0 ? -1 : x.js.reduce((a, b) => a + b, 0) / x.js.length));
       const peak = js.indexOf(Math.max(...js));
       s += `Their layer-by-layer guesses are furthest apart at <b>layer ${r.divergence[peak].a}</b> of A (JS divergence ${fmt(js[peak])}) `;
       s += r.summary && r.summary.settle_layer !== null
@@ -404,7 +404,9 @@
     b1.innerHTML = html;
     host.appendChild(p1);
 
-    const [p2, b2] = panel("What the numbers look like", "Distribution of values by kind of tensor, over ±4 standard deviations.");
+    const [p2, b2] = panel("What the numbers look like", "Distribution of learned values by kind of tensor, over ±4 standard deviations."
+      + (r.buffers && r.buffers.length ? ` Left out: ${r.buffers.length} stored constants that are not learned (causal masks, masking fillers, rotary frequencies), such as ${esc(r.buffers[0])}.` : "")
+      + (r.nonfinite ? ` ${r.nonfinite.toLocaleString()} non-finite values were skipped.` : ""));
     p2.style.marginTop = "18px";
     host.appendChild(p2);
     for (const h of r.histograms.filter((h) => h.kind !== "other" || r.histograms.length < 4)) {
