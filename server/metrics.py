@@ -10,7 +10,7 @@ from scipy.optimize import linear_sum_assignment
 
 
 def _t(x):
-    return x.detach().double() if isinstance(x, torch.Tensor) else torch.as_tensor(x, dtype=torch.float64)
+    return x.detach().cpu().double() if isinstance(x, torch.Tensor) else torch.as_tensor(x, dtype=torch.float64)
 
 
 def cosine(a, b):

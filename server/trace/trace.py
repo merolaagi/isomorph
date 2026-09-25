@@ -155,8 +155,8 @@ def _learning_probe(model, ids, step_rel=1e-3):
         out.loss.backward()
     loss0 = float(out.loss.detach())
     params = [(n, p) for n, p in model.named_parameters() if p.grad is not None]
-    gtot = math.sqrt(sum(float(p.grad.double().pow(2).sum()) for _, p in params)) or 1.0
-    wtot = math.sqrt(sum(float(p.detach().double().pow(2).sum()) for _, p in params)) or 1.0
+    gtot = math.sqrt(sum(float(p.grad.detach().float().pow(2).sum()) for _, p in params)) or 1.0
+    wtot = math.sqrt(sum(float(p.detach().float().pow(2).sum()) for _, p in params)) or 1.0
     rows = []
     for n, p in params:
         g = p.grad.detach().float()
@@ -164,7 +164,7 @@ def _learning_probe(model, ids, step_rel=1e-3):
         row = {"name": n, "layer": _layer_of(n), "kind": _kind(n), "grad_norm": gn, "weight_norm": wn,
                "rel": gn / wn if wn > 1e-8 else None, "share": (gn / gtot) ** 2, "shape": list(p.shape)}
         if g.ndim == 2 and min(g.shape) <= 4096 and max(g.shape) <= 65536:
-            s = torch.linalg.svdvals(g.double().cpu())
+            s = torch.linalg.svdvals(g.cpu().double())
             row["rank90"] = M.energy_rank(s, 0.9)
             row["full_rank"] = int(min(g.shape))
         rows.append(row)
@@ -219,7 +219,7 @@ def trace_report(spec_a, spec_b, prompt, progress=lambda f, m: None, loader=load
             nxt = torch.tensor(ids[1:] + [ids[-1]])
             lens.append({
                 "top": [[{"t": _decode(tok, ix[t, k]), "p": round(float(p[t, k]), 4)} for k in range(3)] for t in range(len(ids))],
-                "true_p": [round(float(lp[t, nxt[t]].exp()), 4) for t in range(len(ids))],
+                "true_p": [round(float(lp[t, int(nxt[t])].exp()), 4) for t in range(len(ids))],
             })
         return {
             "tokens": [_decode(tok, i) for i in ids], "ids": ids, "layers": len(hid) - 1,

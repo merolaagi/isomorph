@@ -16,6 +16,8 @@ while port_busy "$PORT"; do
   echo "Port $PORT is in use by another program, trying $((PORT + 1))"
   PORT=$((PORT + 1))
 done
+# Let PyTorch run any operation the Apple GPU lacks on the CPU instead of failing.
+export PYTORCH_ENABLE_MPS_FALLBACK=1
 echo "Isomorph on http://127.0.0.1:$PORT  (Ctrl+C to stop)"
 ( sleep 2; open "http://127.0.0.1:$PORT" >/dev/null 2>&1 || xdg-open "http://127.0.0.1:$PORT" >/dev/null 2>&1 || true ) &
 exec .venv/bin/python -m uvicorn server.app:app --host 127.0.0.1 --port "$PORT"

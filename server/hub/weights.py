@@ -18,7 +18,7 @@ MAX_SVD_SIDE = 4096
 
 
 def _svals(w):
-    w = w.double()
+    w = w.detach().cpu().double()
     if w.ndim > 2:
         w = w.reshape(w.shape[0], -1)
     r, c = w.shape
@@ -59,7 +59,7 @@ def weight_report(wa, wb, pairs, progress=lambda f, m: None):
             continue
         if i % 8 == 0:
             progress(i / max(1, len(pairs)), f"Comparing {ka}")
-        a64, b64 = a.double().flatten(), b.double().flatten()
+        a64, b64 = a.detach().cpu().double().flatten(), b.detach().cpu().double().flatten()
         ab, aa, bb = float(a64 @ b64), float(a64 @ a64), float(b64 @ b64)
         diff = float((b64 - a64).norm())
         n_common += a.numel()
