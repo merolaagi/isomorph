@@ -38,14 +38,18 @@ function niceTicks(lo, hi, n = 4) {
 function decimals(ticks) {
   if (ticks.length < 2) return 2;
   const step = Math.abs(ticks[1] - ticks[0]);
-  return Math.max(0, Math.min(4, -Math.floor(Math.log10(step) + 1e-9)));
+  let d = 0;
+  while (d < 4 && Math.abs(Math.round(step * 10 ** d) - step * 10 ** d) > 1e-6) d++;
+  return d;
 }
 function lineChart(host, o) {
   const W = o.width || 560, H = o.height || 230, m = { l: 44, r: 12, t: 10, b: 34 };
   const pts = o.series.flatMap((s) => s.points);
   if (!pts.length) { host.textContent = "No data."; return; }
   const xMin = o.xMin ?? Math.min(...pts.map((p) => p[0])), xMax = o.xMax ?? Math.max(...pts.map((p) => p[0]));
-  const yMin = o.yMin ?? Math.min(...pts.map((p) => p[1])), yMax = o.yMax ?? Math.max(...pts.map((p) => p[1]));
+  const yMin = o.yMin ?? Math.min(...pts.map((p) => p[1]));
+  let yMax = o.yMax ?? Math.max(...pts.map((p) => p[1]));
+  if (o.yMax === undefined) { const t = niceTicks(yMin, yMax); if (t.length > 1 && t[t.length - 1] < yMax - 1e-12) yMax = t[t.length - 1] + (t[1] - t[0]); }
   const X = (v) => m.l + ((v - xMin) / (xMax - xMin || 1)) * (W - m.l - m.r);
   const Y = (v) => H - m.b - ((v - yMin) / (yMax - yMin || 1)) * (H - m.t - m.b);
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": o.label || "chart" });
@@ -120,7 +124,9 @@ function groupedBars(host, o) {
   const W = o.width || 560, H = o.height || 220, m = { l: 44, r: 10, t: 10, b: o.rotate ? 70 : 34 };
   const n = o.labels.length, k = o.series.length;
   const all = o.series.flatMap((s) => s.values).filter((v) => v !== null && v !== undefined);
-  const yMin = o.yMin ?? Math.min(0, ...all), yMax = o.yMax ?? Math.max(...all);
+  const yMin = o.yMin ?? Math.min(0, ...all);
+  let yMax = o.yMax ?? Math.max(...all);
+  if (o.yMax === undefined) { const t = niceTicks(yMin, yMax); if (t.length > 1 && t[t.length - 1] < yMax - 1e-12) yMax = t[t.length - 1] + (t[1] - t[0]); }
   const Y = (v) => H - m.b - ((v - yMin) / (yMax - yMin || 1)) * (H - m.t - m.b);
   const gw = (W - m.l - m.r) / n, bw = Math.max(2, (gw * 0.78) / k);
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": o.label || "bar chart" });

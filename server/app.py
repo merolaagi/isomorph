@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(os.environ.get("ISOMORPH_DATA", ROOT / "data"))
 LAB = DATA / "lab"
 HUB = DATA / "hub"
-for d in (LAB, HUB):
+TRACE = DATA / "trace"
+for d in (LAB, HUB, TRACE):
     d.mkdir(parents=True, exist_ok=True)
 VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "dev"
 
@@ -251,6 +252,59 @@ def hub_corpus():
     from .hub.corpus import CORPUS
 
     return {"texts": CORPUS}
+
+
+# ------------------------------------------------------------------ side by side
+class StorageReq(BaseModel):
+    spec: str
+
+
+@app.post("/api/trace/storage")
+def trace_storage(req: StorageReq):
+    from .trace.storage import storage_report
+
+    def work(update, stopped):
+        return storage_report(req.spec.strip(), update)
+
+    return {"job": jobs.submit("storage", f"Read the files of {req.spec}", work).id}
+
+
+class TraceReq(BaseModel):
+    a: str
+    b: str
+    prompt: str = Field(..., min_length=1, max_length=2000)
+    learning: bool = True
+
+
+@app.post("/api/trace/run")
+def trace_run(req: TraceReq):
+    from .trace.trace import trace_report
+
+    def work(update, stopped):
+        r = trace_report(req.a.strip(), req.b.strip(), req.prompt, update, learning=req.learning)
+        rid = time.strftime("%Y%m%d-%H%M%S") + "-trace"
+        blob = {"id": rid, "a": req.a, "b": req.b, "prompt": req.prompt, "created": time.time(), "result": r}
+        (TRACE / f"{rid}.json").write_text(json.dumps(blob))
+        return blob
+
+    return {"job": jobs.submit("trace", f"Trace: {req.a} vs {req.b}", work).id}
+
+
+@app.get("/api/trace/history")
+def trace_history():
+    out = []
+    for f in sorted(TRACE.glob("*.json"), reverse=True)[:40]:
+        b = json.loads(f.read_text())
+        out.append({"id": b["id"], "a": b["a"], "b": b["b"], "prompt": b["prompt"][:80], "created": b["created"]})
+    return out
+
+
+@app.get("/api/trace/history/{rid}")
+def trace_item(rid: str):
+    f = TRACE / f"{_safe_id(rid)}.json"
+    if not f.exists():
+        raise HTTPException(404, "No such trace.")
+    return json.loads(f.read_text())
 
 
 # ------------------------------------------------------------------ static

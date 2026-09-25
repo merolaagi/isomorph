@@ -38,8 +38,8 @@ def _layer_of(name):
 
 def _kind(name):
     n = name.lower()
-    for key, label in (("embed", "embedding"), ("wte", "embedding"), ("wpe", "embedding"), ("lm_head", "unembedding"),
-                       ("embed_out", "unembedding"), ("norm", "norm"), ("ln", "norm"), ("attn", "attention"),
+    for key, label in (("lm_head", "unembedding"), ("embed_out", "unembedding"), ("embed", "embedding"),
+                       ("wte", "embedding"), ("wpe", "embedding"), ("norm", "norm"), ("ln", "norm"), ("attn", "attention"),
                        ("attention", "attention"), ("query", "attention"), ("key", "attention"), ("value", "attention"),
                        ("qkv", "attention"), ("mlp", "mlp"), ("intermediate", "mlp"), ("dense_h_to_4h", "mlp"),
                        ("dense_4h_to_h", "mlp"), ("fc", "mlp"), ("head", "head")):

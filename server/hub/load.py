@@ -46,12 +46,21 @@ def fetch_weights(spec: str, progress=lambda f, m: None):
     """Download and return {tensor_name: float32 tensor} for any checkpoint layout."""
     from huggingface_hub import hf_hub_download
 
-    repo, sub, rev = parse_spec(spec)
-    files = _files_for(repo, sub, rev)
+    if os.path.isdir(spec):
+        local = sorted(p for p in os.listdir(spec) if p.endswith(".safetensors")) or \
+            sorted(p for p in os.listdir(spec) if p.endswith(".bin"))
+        if not local:
+            raise FileNotFoundError(f"No .safetensors or .bin files in {spec}.")
+        paths = [(f, os.path.join(spec, f)) for f in local]
+    else:
+        repo, sub, rev = parse_spec(spec)
+        files = _files_for(repo, sub, rev)
+        paths = []
+        for i, f in enumerate(files):
+            progress(i / len(files), f"Downloading {repo}/{f}")
+            paths.append((f, hf_hub_download(repo, f, revision=rev)))
     out = OrderedDict()
-    for i, f in enumerate(files):
-        progress(i / len(files), f"Downloading {repo}/{f}")
-        path = hf_hub_download(repo, f, revision=rev)
+    for f, path in paths:
         if f.endswith(".safetensors"):
             from safetensors.torch import load_file
 
@@ -122,11 +131,17 @@ def load_lm(spec: str):
             kw["subfolder"] = sub
         tok = AutoTokenizer.from_pretrained(repo, **kw)
         causal = True
+        # Eager attention so attention patterns can be returned for the trace view.
+        def load(cls):
+            try:
+                return cls.from_pretrained(repo, dtype=torch.float32, attn_implementation="eager", **kw)
+            except (TypeError, ValueError):
+                return cls.from_pretrained(repo, dtype=torch.float32, **kw)
         try:
-            model = AutoModelForCausalLM.from_pretrained(repo, dtype=torch.float32, **kw)
+            model = load(AutoModelForCausalLM)
         except Exception:
             causal = False
-            model = AutoModel.from_pretrained(repo, dtype=torch.float32, **kw)
+            model = load(AutoModel)
         model.eval().to(device())
         return tok, model, causal
 

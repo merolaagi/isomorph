@@ -7,7 +7,7 @@ Isomorph is a local research bench for answering that. Raw weights can't be comp
 ## Install and run (macOS)
 
 ```bash
-mkdir -p ~/Sites && tar -xzf ~/Downloads/isomorph-v*.tar.gz -C ~/Sites && cd ~/Sites/isomorph && ./setup.sh && ./run.sh
+mkdir -p ~/Sites && tar -xzf ~/Downloads/isomorph-v*.tar.gz -C ~/Sites && cd ~/Sites/isomorph && ./setup.sh && ./scripts/push.sh && ./run.sh
 ```
 
 `setup.sh` creates `.venv` and installs dependencies (torch is the big one). `run.sh` starts the server on http://127.0.0.1:47821 and opens it. Upgrades extract over the same folder; your runs in `data/` and the `.venv` are kept, and `setup.sh` only reinstalls when `requirements.txt` changes.
@@ -15,6 +15,14 @@ mkdir -p ~/Sites && tar -xzf ~/Downloads/isomorph-v*.tar.gz -C ~/Sites && cd ~/S
 Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken), `ISOMORPH_DEVICE` (`auto`, `cpu`, `mps`), `ISOMORPH_DATA`, `HF_TOKEN` for gated models.
 
 ## What it does
+
+**Side by side.** Two models (Hugging Face names or local folders), one prompt:
+- *Workflow*: an animated layer-by-layer view of both models. At each layer, what each model would predict if it stopped there (logit lens), how far apart the two predictions are (Jensen-Shannon divergence), and how far apart their internal states are after an affine map fitted on other text, relative to the typical gap.
+- *Attention*: every head's pattern for both models, with each head of A matched to B's most similar head.
+- *Neurons*: how few MLP neurons carry 90% of the activity for each token, and which ones.
+- *If trained on this*: one normalised gradient step on the prompt for each model: loss before and after, where the change lands by layer, and how low-rank each matrix's update is.
+- *Weight files*: the actual bytes: safetensors header, index entries, raw values, one weight bit by bit, value distributions and the full tensor index.
+- *Weight patterns*: raw and symmetry-invariant weight comparison.
 
 **Ground-truth lab.** Trains a family of tiny transformers on (a + b) mod p that differ only in their random seed. The correct algorithm is known (Fourier "clock" circuits), so every tool can be checked here first. For any two seeds:
 
@@ -42,8 +50,9 @@ server/jobs.py       single-worker job queue
 server/metrics.py    CKA, Procrustes, matching, spectra
 server/lab/          tiny transformer, training, analyses
 server/hub/          checkpoint loading, weight and activation comparison
+server/trace/        file anatomy and side-by-side prompt tracing
 web/                 interface (no build step, no JS dependencies)
-tests/               python3 tests/test_lab.py, python3 tests/test_hub_offline.py
+tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py
 scripts/push.sh      commit and push to GitHub (merolaagi/isomorph)
 scripts/package.sh   build a uniquely named release archive
 ```
