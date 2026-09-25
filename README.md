@@ -16,6 +16,8 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 
 ## What it does
 
+**Pick any model.** Search Hugging Face from inside the app (filter by task and size, sort by downloads, likes or trend), or paste a Hugging Face link, a ModelScope link, a direct link to a `.safetensors` or `.bin` file, a model id, or a local folder. Each pick is checked (architecture, size, download size, whether it can be traced) and can be saved to *My models*. Gated or private models work once you save a Hugging Face token; it stays on your Mac in `data/settings.json`.
+
 **Side by side.** Two models (Hugging Face names or local folders), one prompt:
 - *Workflow*: an animated layer-by-layer view of both models. At each layer, what each model would predict if it stopped there (logit lens), how far apart the two predictions are (Jensen-Shannon divergence), and how far apart their internal states are after an affine map fitted on other text, relative to the typical gap.
 - *Architecture*: a post-mortem of the model read from its own code. A flowchart of the forward pass (embedding, each block's norms, attention and MLP, residual adds, final norm, output layer) where every step shows its math, the exact weight tensors it reads or "no weights", the source code that runs it, and on your prompt how large its output is and how much the loss rises when it is removed.

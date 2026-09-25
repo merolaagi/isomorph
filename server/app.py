@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .jobs import JobQueue
 from .jsonsafe import clean
+from .hub import catalog
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(os.environ.get("ISOMORPH_DATA", ROOT / "data"))
@@ -25,6 +26,7 @@ for d in (LAB, HUB, TRACE):
     d.mkdir(parents=True, exist_ok=True)
 VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "dev"
 
+catalog.load_token(DATA)
 app = FastAPI(title="Isomorph", version=VERSION)
 jobs = JobQueue()
 
@@ -221,10 +223,12 @@ def hub_weights(req: HubReq):
     from .hub.weights import weight_report
 
     def work(update, stopped):
-        wa = fetch_weights(req.a, lambda f, m: update(0.02 + 0.28 * f, m))
+        a = catalog.resolve(req.a, DATA, lambda f, m: update(0.02 * f, m))
+        b = catalog.resolve(req.b, DATA, lambda f, m: update(0.02 * f, m))
+        wa = fetch_weights(a, lambda f, m: update(0.02 + 0.28 * f, m))
         if stopped():
             raise InterruptedError("Stopped.")
-        wb = fetch_weights(req.b, lambda f, m: update(0.3 + 0.28 * f, m))
+        wb = fetch_weights(b, lambda f, m: update(0.3 + 0.28 * f, m))
         pairs = align_names(wa, wb)
         if not pairs:
             raise ValueError("These checkpoints share no tensor names, so there is nothing to pair. Try the activation comparison instead.")
@@ -239,7 +243,9 @@ def hub_acts(req: HubReq):
     from .hub.acts import activation_report
 
     def work(update, stopped):
-        r = activation_report(req.a, req.b, req.texts, req.max_tokens, update)
+        a = catalog.resolve(req.a, DATA, update)
+        b = catalog.resolve(req.b, DATA, update)
+        r = activation_report(a, b, req.texts, req.max_tokens, update)
         return _save_hub("activations", req, r)
 
     return {"job": jobs.submit("hub-acts", f"Activations: {req.a} vs {req.b}", work).id}
@@ -282,7 +288,7 @@ def trace_storage(req: StorageReq):
     from .trace.storage import storage_report
 
     def work(update, stopped):
-        return storage_report(req.spec.strip(), update)
+        return storage_report(catalog.resolve(req.spec, DATA, update), update)
 
     return {"job": jobs.submit("storage", f"Read the files of {req.spec}", work).id}
 
@@ -299,7 +305,9 @@ def trace_run(req: TraceReq):
     from .trace.trace import trace_report
 
     def work(update, stopped):
-        r = trace_report(req.a.strip(), req.b.strip(), req.prompt, update, learning=req.learning)
+        a = catalog.resolve(req.a, DATA, update)
+        b = catalog.resolve(req.b, DATA, update)
+        r = trace_report(a, b, req.prompt, update, learning=req.learning)
         rid = time.strftime("%Y%m%d-%H%M%S") + "-trace"
         blob = {"id": rid, "a": req.a, "b": req.b, "prompt": req.prompt, "created": time.time(), "result": r}
         return _write(TRACE / f"{rid}.json", blob)
@@ -317,7 +325,7 @@ def trace_anatomy(req: AnatomyReq):
     from .trace.anatomy import anatomy_report
 
     def work(update, stopped):
-        return anatomy_report(req.spec.strip(), req.prompt, update)
+        return anatomy_report(catalog.resolve(req.spec, DATA, update), req.prompt, update)
 
     return {"job": jobs.submit("anatomy", f"Architecture of {req.spec}", work).id}
 
@@ -340,6 +348,62 @@ def trace_item(rid: str):
     if not f.exists():
         raise HTTPException(404, "No such trace.")
     return _read(f)
+
+
+# ------------------------------------------------------------------ model catalog
+@app.get("/api/models/search")
+def models_search(q: str = "", task: str = "text-generation", max_params: str = "", sort: str = "downloads", limit: int = 30, author: str = ""):
+    try:
+        return catalog.search(q, task or None, max_params or None, sort, limit, author or None)
+    except Exception as e:
+        raise HTTPException(502, f"Could not reach Hugging Face: {type(e).__name__}: {e}")
+
+
+class SpecReq(BaseModel):
+    spec: str
+    note: str = ""
+    meta: dict | None = None
+
+
+@app.post("/api/models/info")
+def models_info(req: SpecReq):
+    try:
+        return catalog.info(req.spec, DATA)
+    except Exception as e:
+        raise HTTPException(502, f"Could not check this model: {type(e).__name__}: {e}")
+
+
+@app.get("/api/models/saved")
+def models_saved():
+    return catalog.saved_list(DATA)
+
+
+@app.post("/api/models/saved")
+def models_save(req: SpecReq):
+    if not req.spec.strip():
+        raise HTTPException(400, "Nothing to save.")
+    return catalog.saved_add(DATA, req.spec.strip(), req.note, req.meta)
+
+
+@app.delete("/api/models/saved")
+def models_unsave(spec: str):
+    return catalog.saved_remove(DATA, spec)
+
+
+class TokenReq(BaseModel):
+    token: str | None = None
+
+
+@app.get("/api/settings/token")
+def token_get():
+    tok = os.environ.get("HF_TOKEN")
+    return {"has_token": bool(tok), "user": catalog.whoami() if tok else None}
+
+
+@app.post("/api/settings/token")
+def token_set(req: TokenReq):
+    catalog.save_token(DATA, req.token)
+    return token_get()
 
 
 # ------------------------------------------------------------------ static

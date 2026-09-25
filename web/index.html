@@ -36,9 +36,12 @@
   <section class="view" id="view-trace">
     <aside class="rail">
       <h2>Two models, one prompt</h2>
-      <p class="hint">Hugging Face names or local folders. Add <code>::folder</code> for a subfolder and <code>@step3000</code> for a training checkpoint.</p>
+      <p class="hint">A Hugging Face name or link, a ModelScope link, a direct link to a <code>.safetensors</code> file, or a local folder. Add <code>::folder</code> for a subfolder and <code>@step3000</code> for a training checkpoint.</p>
       <label class="stack"><span class="tag a">A</span><input id="tr-a" value="EleutherAI/pythia-70m" spellcheck="false" aria-label="Model A"></label>
+      <div class="minfo" id="tr-a-info"></div>
       <label class="stack"><span class="tag b">B</span><input id="tr-b" value="EleutherAI/pythia-70m-seed1" spellcheck="false" aria-label="Model B"></label>
+      <div class="minfo" id="tr-b-info"></div>
+      <button class="ghost wide" id="tr-find">Find a model or paste a link</button>
       <label>Prompt<textarea id="tr-prompt" rows="4">Alice has three apples and gets two more. Now Alice has</textarea></label>
       <label class="check"><input type="checkbox" id="tr-learn" checked> Include the learning probe (one gradient step)</label>
       <button class="primary wide" id="tr-run">Trace prompt</button>
@@ -46,6 +49,8 @@
         <button class="ghost" id="tr-files">Read weight files</button>
         <button class="ghost" id="tr-weights">Compare weights</button>
       </div>
+      <h2 class="mt">My models</h2>
+      <ul class="runs" id="tr-saved"></ul>
       <h2 class="mt">Presets</h2>
       <ul class="presets" id="tr-presets"></ul>
       <h2 class="mt">History</h2>
@@ -101,6 +106,7 @@
       <p class="hint">Any Hugging Face model. Add <code>::folder</code> for a subfolder and <code>@step1000</code> for a revision.</p>
       <label class="stack"><span class="tag a">A</span><input id="hub-a" value="EleutherAI/pythia-70m" spellcheck="false"></label>
       <label class="stack"><span class="tag b">B</span><input id="hub-b" value="EleutherAI/pythia-70m-seed1" spellcheck="false"></label>
+      <button class="ghost wide" id="hub-find">Find a model or paste a link</button>
       <div class="row2">
         <button class="primary" id="hub-weights">Compare weights</button>
         <button class="primary alt" id="hub-acts">Compare activations</button>
@@ -111,6 +117,8 @@
         <textarea id="hub-texts" rows="6" placeholder="Leave empty for the built-in corpus"></textarea>
         <label>Tokens to compare<input id="hub-tokens" type="number" value="1500" min="100" max="6000" step="100"></label>
       </details>
+      <h2 class="mt">My models</h2>
+      <ul class="runs" id="hub-saved"></ul>
       <h2 class="mt">Presets</h2>
       <ul class="presets" id="presets"></ul>
       <h2 class="mt">History</h2>
@@ -157,5 +165,6 @@
 <script src="/static/charts.js"></script>
 <script src="/static/app.js"></script>
 <script src="/static/trace.js"></script>
+<script src="/static/picker.js"></script>
 </body>
 </html>
