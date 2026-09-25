@@ -22,7 +22,8 @@ DATA = Path(os.environ.get("ISOMORPH_DATA", ROOT / "data"))
 LAB = DATA / "lab"
 HUB = DATA / "hub"
 TRACE = DATA / "trace"
-for d in (LAB, HUB, TRACE):
+ATLAS = DATA / "atlas"
+for d in (LAB, HUB, TRACE, ATLAS):
     d.mkdir(parents=True, exist_ok=True)
 VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "dev"
 
@@ -239,6 +240,43 @@ def lab_pair(req: PairReq):
     return {"job": jobs.submit("pair", f"Compare seed {req.a} with seed {req.b}", work).id}
 
 
+class SeededReq(BaseModel):
+    run_id: str
+    conditions: list[str] = ["random", "fourier", "transplant", "shuffled"]
+    seeds: list[int] = [21, 22, 23]
+    max_steps: int = Field(6000, ge=100, le=60000)
+    target: float = Field(0.95, gt=0.1, le=1.0)
+    donor_seed: int | None = None
+
+
+@app.post("/api/lab/seeded")
+def lab_seeded(req: SeededReq):
+    from .lab.seeded import CONDITIONS, seeded_experiment
+
+    d = LAB / _safe_id(req.run_id)
+    if not (d / "config.json").exists():
+        raise HTTPException(404, "No such run.")
+    bad = [c for c in req.conditions if c not in CONDITIONS]
+    if bad or not req.conditions:
+        raise HTTPException(400, f"Unknown condition: {', '.join(bad) or 'none chosen'}.")
+    conds = ["random"] + [c for c in req.conditions if c != "random"]
+    seeds = sorted(set(req.seeds))[:8]
+
+    def work(update, stopped):
+        def pr(f, m, x=None):
+            update(f, m, {"done": [{k: v for k, v in r.items() if k != "history"} | {"history": r["history"]} for r in (x or {}).get("done", [])]})
+        return seeded_experiment(d, conds, seeds, req.max_steps, req.target, req.donor_seed, pr, stopped)
+
+    return {"job": jobs.submit("seeded", f"Pattern-seeded training on {req.run_id}", work).id}
+
+
+@app.get("/api/lab/seeded/{run_id}")
+def lab_seeded_results(run_id: str):
+    d = LAB / _safe_id(run_id)
+    files = sorted(d.glob("seeded_*.json"), reverse=True)
+    return [_read(f) for f in files[:5]]
+
+
 # ------------------------------------------------------------------ hub
 class HubReq(BaseModel):
     a: str
@@ -384,6 +422,49 @@ def trace_item(rid: str):
     if not f.exists():
         raise HTTPException(404, "No such trace.")
     return _read(f)
+
+
+# ------------------------------------------------------------------ pattern library
+class ProfileReq(BaseModel):
+    spec: str
+    baseline: bool = True
+
+
+@app.post("/api/atlas/profile")
+def atlas_profile(req: ProfileReq):
+    from .atlas.profile import profile_model
+
+    def work(update, stopped):
+        resolved = catalog.resolve(req.spec, DATA, update)
+        return profile_model(req.spec.strip(), resolved, ATLAS, update, baseline=req.baseline)
+
+    return {"job": jobs.submit("profile", f"Profile {req.spec}", work).id}
+
+
+@app.get("/api/atlas/library")
+def atlas_library():
+    from .atlas.library import library_report
+
+    return clean(library_report(ATLAS))
+
+
+@app.get("/api/atlas/model/{pid}")
+def atlas_model(pid: str):
+    from .atlas.library import model_report
+
+    try:
+        return clean(model_report(ATLAS, _safe_id(pid)))
+    except KeyError:
+        raise HTTPException(404, "No such profile.")
+
+
+@app.delete("/api/atlas/model/{pid}")
+def atlas_delete(pid: str):
+    d = ATLAS / _safe_id(pid)
+    if not d.exists():
+        raise HTTPException(404, "No such profile.")
+    shutil.rmtree(d)
+    return {"deleted": pid}
 
 
 # ------------------------------------------------------------------ model catalog

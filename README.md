@@ -27,6 +27,8 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 - *Weight files*: the actual bytes: safetensors header, index entries, raw values, one weight bit by bit, value distributions and the full tensor index.
 - *Weight patterns*: raw and symmetry-invariant weight comparison.
 
+**Pattern library.** Profile any language model into a local library: a fingerprint over 239 fixed anchor texts (per-layer similarity structure, comparable across any architecture), attention-circuit scores (induction, previous-token, duplicate-token heads, attention sinks) with a causal test that removes the induction heads, linear probes for plural, tense, negation, sentiment and number magnitude with a shuffled-label control, and a weight-spectrum signature. Every measure is repeated on a randomly initialised copy of the same architecture, and a pattern only counts if the trained model clearly beats it. The library shows which patterns are shared, a similarity map, each model's agreement with the consensus at every depth, and for any new model what it shares and what it lacks.
+
 **Ground-truth lab.** Trains a family of tiny transformers on (a + b) mod p that differ only in their random seed. The correct algorithm is known (Fourier "clock" circuits), so every tool can be checked here first. For any two seeds:
 
 1. Raw weight cosine.
@@ -34,6 +36,8 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 3. After removing the task's own symmetry: multiplying every number by a unit u mod p maps one correct algorithm to another and moves a circuit from frequency k to k·u. Circuits are matched frequency by frequency against a null of relabellings that should not line up.
 
 Plus linear interpolation (before and after alignment), stitching, site-by-site CKA, frequency fingerprints and a compression probe.
+
+*Does a known pattern save compute?* Trains fresh models from different starting points and counts steps until they generalise: a random start, waves predicted by the task's symmetry (no trained model needed), an embedding transplanted from a trained model, frozen variants, and a shuffled transplant as a control. First single-seed run on p = 53: 3,075 steps from random, 250 from symmetry-derived waves, 100–150 from a transplant, and the shuffled control never generalised.
 
 **Real models.** Any Hugging Face checkpoint, written `repo`, `repo::subfolder` or `repo@revision`.
 - *Compare weights* reads checkpoint files directly, so it works for custom architectures (for example Laya). It reports cosine, singular-value shape per matrix and whether the difference is low-rank.

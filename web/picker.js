@@ -23,7 +23,7 @@
     if (!el) return;
     el.value = spec;
     el.dispatchEvent(new Event("change"));
-    toast(`Model ${side.toUpperCase()} set to ${spec}.`);
+    toast(side === "one" ? `Selected ${spec}.` : `Model ${side.toUpperCase()} set to ${spec}.`);
   }
 
   async function save(spec, meta) {
@@ -125,7 +125,9 @@
   function actions(spec, meta) {
     const d = document.createElement("span");
     d.className = "pk-act";
-    d.innerHTML = `<button class="ghost small" data-s="a">Use as <span class="headA">A</span></button><button class="ghost small" data-s="b">Use as <span class="headB">B</span></button><button class="ghost small" data-save>Save</button>`;
+    d.innerHTML = targets.one
+      ? `<button class="ghost small" data-s="one">Use</button><button class="ghost small" data-save>Save</button>`
+      : `<button class="ghost small" data-s="a">Use as <span class="headA">A</span></button><button class="ghost small" data-s="b">Use as <span class="headB">B</span></button><button class="ghost small" data-save>Save</button>`;
     d.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => use(b.dataset.s, spec)));
     d.querySelector("[data-save]").onclick = () => save(spec, meta);
     return d;
@@ -167,6 +169,7 @@
   // ------------------------------------------------------------ wiring
   const fb = $("#tr-find"); if (fb) fb.onclick = () => open({ a: "#tr-a", b: "#tr-b" });
   const hb = $("#hub-find"); if (hb) hb.onclick = () => open({ a: "#hub-a", b: "#hub-b" });
+  const ab = $("#at-find"); if (ab) ab.onclick = () => open({ one: "#at-spec" });
   watch("#tr-a", "#tr-a-info");
   watch("#tr-b", "#tr-b-info");
   loadSaved();

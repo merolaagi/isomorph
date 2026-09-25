@@ -18,6 +18,7 @@
   </div>
   <nav role="tablist">
     <button role="tab" data-view="trace" aria-selected="true">Side by side</button>
+    <button role="tab" data-view="atlas" aria-selected="false">Pattern library</button>
     <button role="tab" data-view="lab" aria-selected="false">Ground-truth lab</button>
     <button role="tab" data-view="hub" aria-selected="false">Model statistics</button>
     <button role="tab" data-view="about" aria-selected="false">How it works</button>
@@ -62,6 +63,28 @@
         <p>The weights stay fixed while a model reads; what changes is the signal flowing through them. So the trace follows that signal layer by layer in both models: what each one would predict if it stopped there, which neurons carry the load, where attention goes, and how far apart the two internal states are once coordinate differences are factored out.</p>
         <p>Then it answers the other half of your question literally. If this prompt were used to train each model, which weights would move, and by how much?</p>
         <p>Start with a preset on the left. The first run downloads the models; later runs use the local cache.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PATTERN LIBRARY -->
+  <section class="view" id="view-atlas" hidden>
+    <aside class="rail">
+      <h2>Add a model to the library</h2>
+      <p class="hint">Profiling runs a fixed set of probes: a fingerprint over 239 anchor texts, attention-circuit tests, concept probes and a weight signature. It runs them again on a randomly initialised copy, so every pattern is judged against what an untrained network already shows.</p>
+      <input id="at-spec" value="EleutherAI/pythia-70m" spellcheck="false" aria-label="Model to profile">
+      <button class="ghost wide" id="at-find" style="margin-top:8px">Find a model or paste a link</button>
+      <label class="check"><input type="checkbox" id="at-base" checked> Include the random baseline (recommended)</label>
+      <button class="primary wide" id="at-go">Profile and add</button>
+      <button class="ghost wide" id="at-ab">Add models A and B from Side by side</button>
+      <h2 class="mt">In the library</h2>
+      <ul class="runs" id="at-list"><li class="empty">No models yet.</li></ul>
+    </aside>
+    <div class="stage" id="at-stage">
+      <div class="intro">
+        <p class="lede">Store what each model learned, and check every new model against it.</p>
+        <p>Each profile records patterns that can be compared across any two models: how the model organises a fixed set of texts layer by layer, which known attention circuits it has and whether it depends on them, where concepts such as number, tense and negation become readable, and the shape of its weight spectra.</p>
+        <p>With a few models profiled, the library shows which patterns are shared, which are rare, and how close each model is to the consensus at every depth. Add the model you are curious about last: its page will say what it shares with the rest and what it lacks.</p>
       </div>
     </div>
   </section>
@@ -166,5 +189,6 @@
 <script src="/static/app.js"></script>
 <script src="/static/trace.js"></script>
 <script src="/static/picker.js"></script>
+<script src="/static/atlas.js"></script>
 </body>
 </html>

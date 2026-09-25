@@ -167,6 +167,10 @@ function renderFamily(f) {
     runJob("/api/lab/pair", { run_id: S.run, a, b }, (r) => renderPair(pairHost, r));
   };
 
+  const seededHost = document.createElement("div");
+  stage.appendChild(seededHost);
+  seededPanel(seededHost, f);
+
   const cols = document.createElement("div");
   cols.className = "stack-gap";
   stage.appendChild(cols);
@@ -213,6 +217,88 @@ function renderFamily(f) {
   cols.appendChild(row);
   lineChart(lb, { series, yMin: 0, yMax: 1, xLabel: "Step", yFmt: (v) => pct(v) });
   heatmap(cb, { matrix: f.cka.mlp_post, rows: labels, cols: labels, values: true, rowLabelWidth: 60, colLabelHeight: 50 });
+}
+
+// ------------------------------------------------------------------ lab: pattern-seeded training
+const SEED_CONDS = [
+  ["random", "Ordinary random start (control)", true],
+  ["fourier", "Waves predicted by the task's symmetry", true],
+  ["fourier_frozen", "Waves, never updated", false],
+  ["transplant", "Embedding copied from a trained model", true],
+  ["transplant_frozen", "Copied embedding, never updated", false],
+  ["shuffled", "Copied embedding with rows shuffled (control)", true],
+];
+const COND_COLORS = { random: "#5f6b7a", fourier: "#6b3fb3", fourier_frozen: "#b595f0", transplant: "#2446c7", transplant_frozen: "#7d97ff", shuffled: "#c23a6b" };
+
+function seededPanel(host, f) {
+  const c = f.config;
+  const [p, b] = panel("Does a known pattern save compute?",
+    "Train fresh models from different starting points and count the steps until they generalise. The pattern can come from theory (waves at a few frequencies, which the task's symmetry predicts) or from a trained member of this family. The shuffled transplant keeps the same numbers but destroys the pattern, so it shows whether the pattern itself is what helps.");
+  const learned = f.models.filter((m) => m.test_acc >= 0.95);
+  b.innerHTML = `<div class="seedform">
+    <div class="conds">${SEED_CONDS.map(([k, label, on]) => `<label class="check"><input type="checkbox" value="${k}" ${on ? "checked" : ""} ${k === "random" ? "disabled" : ""}> <span style="color:${COND_COLORS[k]}">■</span> ${label}</label>`).join("")}</div>
+    <div class="grid-form" style="max-width:520px">
+      <label>Fresh seeds<input id="sd-seeds" value="21, 22, 23"></label>
+      <label>Step limit<input id="sd-max" type="number" value="${Math.round(c.steps * 1.5)}" step="100"></label>
+      <label>Target test accuracy<input id="sd-target" type="number" value="0.95" step="0.01" min="0.5" max="1"></label>
+      <label>Donor for transplants<select id="sd-donor">${(learned.length ? learned : f.models).map((m) => `<option value="${m.seed}">Seed ${m.seed} (${pct(m.test_acc)})</option>`).join("")}</select></label>
+    </div>
+    <button class="primary" id="sd-go" style="margin-top:12px">Run the experiment</button>
+    <p class="sub" style="margin-top:8px">Each condition runs once per seed and stops as soon as it generalises. With the defaults this is about four times the cost of training one seed per condition.</p></div>
+    <div id="sd-out"></div>`;
+  host.appendChild(p);
+  const out = $("#sd-out");
+  api(`/api/lab/seeded/${S.run}`).then((prev) => { if (prev.length) renderSeeded(out, prev[0]); }).catch(() => {});
+  $("#sd-go").onclick = () => {
+    const conditions = [...b.querySelectorAll(".conds input:checked")].map((i) => i.value);
+    const body = { run_id: S.run, conditions: ["random", ...conditions.filter((x) => x !== "random")],
+      seeds: $("#sd-seeds").value.split(/[\s,]+/).filter(Boolean).map(Number), max_steps: parseInt($("#sd-max").value, 10),
+      target: parseFloat($("#sd-target").value), donor_seed: parseInt($("#sd-donor").value, 10) };
+    out.innerHTML = `<p class="spinner">Training…</p>`;
+    runJob("/api/lab/seeded", body, (r) => renderSeeded(out, r), (live) => {
+      if (live && live.done && live.done.length) renderSeeded(out, { live: true, results: live.done, conditions: body.conditions, target: body.target, summary: [] });
+    });
+  };
+}
+
+function renderSeeded(out, r) {
+  out.innerHTML = "";
+  const byCond = {};
+  for (const x of r.results) (byCond[x.condition] ||= []).push(x);
+  if (!r.live && r.summary.length) {
+    const base = r.summary.find((s) => s.condition === "random");
+    const best = [...r.summary].filter((s) => s.condition !== "random" && s.step_saving !== null).sort((a, b) => b.step_saving - a.step_saving)[0];
+    let f = base && base.median_steps !== null
+      ? `From an ordinary random start, models needed a median of <b>${base.median_steps.toLocaleString()}</b> steps to reach ${pct(r.target)} test accuracy. `
+      : `The random-start models did not reach ${pct(r.target)} within ${r.max_steps.toLocaleString()} steps, so savings are not defined; raise the step limit. `;
+    if (best && base && base.median_steps !== null) {
+      f += best.step_saving > 0.05
+        ? `The biggest saving came from <b class="cab">${esc(best.label.toLowerCase())}</b>: ${best.median_steps.toLocaleString()} steps, <b class="cab">${pct(best.step_saving)} fewer</b>${best.compute_saving !== null ? ` and about ${pct(best.compute_saving)} less compute` : ""}. `
+        : `No starting pattern cut the steps by more than 5%. `;
+      const fo = r.summary.find((s) => s.condition === "fourier");
+      if (fo && fo !== best && fo.median_steps !== null && fo.step_saving > 0.05)
+        f += `Waves predicted by the task's symmetry alone, with no trained model involved, needed ${fo.median_steps.toLocaleString()} steps (${pct(fo.step_saving)} fewer). `;
+      const sh = r.summary.find((s) => s.condition === "shuffled"), tr = r.summary.find((s) => s.condition === "transplant");
+      if (sh && tr && sh.reached === 0 && tr.median_steps !== null)
+        f += "The shuffled control never generalised within the limit even though it holds exactly the same numbers, so it is the arrangement, the pattern, that carries the benefit. ";
+      else if (sh && tr && sh.median_steps !== null && tr.median_steps !== null)
+        f += tr.median_steps < sh.median_steps * 0.9 ? "The shuffled control was slower than the real transplant, so the arrangement of the numbers, not just their scale, is what helped. " : "The shuffled control did about as well as the real transplant, so the benefit may come from the scale of the numbers rather than the pattern. ";
+    }
+    f += ` With ${r.seeds.length} seed${r.seeds.length === 1 ? "" : "s"} per condition, treat differences under about 20% as noise.`;
+    out.insertAdjacentHTML("beforeend", `<p class="finding" style="font-size:18px;margin:18px 0">${f}</p>`);
+  }
+  const chart = document.createElement("div");
+  out.appendChild(chart);
+  const series = [];
+  for (const [c, rs] of Object.entries(byCond)) rs.forEach((x, i) => series.push({ name: i === 0 ? (SEED_CONDS.find((s) => s[0] === c) || [c, c])[1] : "", color: COND_COLORS[c] || "#888", width: 1.6, opacity: 0.85, points: x.history.step.map((s, j) => [s, x.history.test_acc[j]]) }));
+  lineChart(chart, { series, yMin: 0, yMax: 1, xMin: 0, xLabel: "Training step", yFmt: (v) => pct(v) });
+  if (!r.live && r.summary.length) {
+    out.insertAdjacentHTML("beforeend", `<div class="scroll" style="margin-top:12px"><table><thead><tr><th>Starting point</th><th class="num">Generalised</th><th class="num">Median steps</th><th class="num">Fewer steps</th><th class="num">Less compute</th><th>Per seed</th></tr></thead><tbody>${
+      r.summary.map((s) => `<tr><td><span style="color:${COND_COLORS[s.condition]}">■</span> ${esc(s.label)}</td><td class="num">${s.reached} of ${s.runs}</td><td class="num">${s.median_steps === null ? "–" : s.median_steps.toLocaleString()}</td>
+        <td class="num">${s.condition === "random" ? "baseline" : s.step_saving === null ? "–" : pct(s.step_saving)}</td><td class="num">${s.condition === "random" ? "baseline" : s.compute_saving === null ? "–" : pct(s.compute_saving)}</td>
+        <td class="muted">${byCond[s.condition].map((x) => (x.steps_to_target === null ? `>${x.steps_run}` : x.steps_to_target)).join(", ")}</td></tr>`).join("")
+    }</tbody></table></div><p class="sub" style="margin-top:8px">Compute counts a forward pass over all parameters and a backward pass over the trainable ones for every step. A frozen embedding saves a little per step; the large savings come from needing fewer steps.</p>`);
+  }
 }
 
 // ------------------------------------------------------------------ lab: pair
