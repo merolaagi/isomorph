@@ -136,6 +136,8 @@ def spectrum_distance(sa, sb):
     """L1 distance between normalised singular value profiles (0 = identical shape)."""
     sa, sb = _t(sa), _t(sb)
     n = min(len(sa), len(sb))
+    if n == 0 or float(sa[:n].sum()) <= 0 or float(sb[:n].sum()) <= 0:
+        return 0.0 if float(sa[:n].sum()) == float(sb[:n].sum()) else 1.0
     pa, pb = sa[:n] / sa[:n].sum(), sb[:n] / sb[:n].sum()
     return float((pa - pb).abs().sum() / 2)
 

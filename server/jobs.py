@@ -6,6 +6,8 @@ import time
 import traceback
 import uuid
 
+from .jsonsafe import clean
+
 
 class Job:
     def __init__(self, kind, title, fn):
@@ -25,7 +27,7 @@ class Job:
         self.progress = max(0.0, min(1.0, float(frac)))
         self.message = msg
         if live is not None:
-            self.live = live
+            self.live = clean(live)
 
     def public(self, with_result=True):
         d = {"id": self.id, "kind": self.kind, "title": self.title, "state": self.state, "progress": round(self.progress, 4),
@@ -65,7 +67,7 @@ class JobQueue:
             job.state = "running"
             job.message = "Starting."
             try:
-                job.result = job.fn(job.update, job._stop.is_set)
+                job.result = clean(job.fn(job.update, job._stop.is_set))
                 job.state = "done"
                 job.progress = 1.0
             except InterruptedError as e:

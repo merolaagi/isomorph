@@ -8,12 +8,13 @@ import time
 from pathlib import Path
 
 import torch
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .jobs import JobQueue
+from .jsonsafe import clean
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(os.environ.get("ISOMORPH_DATA", ROOT / "data"))
@@ -26,6 +27,25 @@ VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() 
 
 app = FastAPI(title="Isomorph", version=VERSION)
 jobs = JobQueue()
+
+
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception):
+    # Show the real cause in the UI instead of a bare "500".
+    import traceback
+
+    traceback.print_exc()
+    return JSONResponse({"detail": f"Server error in {request.url.path}: {type(exc).__name__}: {exc}"}, status_code=500)
+
+
+def _read(path):
+    return clean(json.loads(Path(path).read_text()))
+
+
+def _write(path, obj):
+    obj = clean(obj)
+    Path(path).write_text(json.dumps(obj, allow_nan=False))
+    return obj
 
 
 def _safe_id(s):
@@ -144,13 +164,11 @@ def lab_family(req: FamilyReq):
     d = LAB / _safe_id(req.run_id)
     cache = d / "family.json"
     if cache.exists() and not req.refresh:
-        return {"result": json.loads(cache.read_text())}
+        return {"result": _read(cache)}
 
     def work(update, stopped):
         update(0.1, "Loading models")
-        r = family_report(_run(req.run_id))
-        cache.write_text(json.dumps(r))
-        return r
+        return _write(cache, family_report(_run(req.run_id)))
 
     return {"job": jobs.submit("family", f"Survey run {req.run_id}", work).id}
 
@@ -171,16 +189,14 @@ def lab_pair(req: PairReq):
     d = LAB / _safe_id(req.run_id)
     cache = d / f"pair_{req.a}_{req.b}.json"
     if cache.exists() and not req.refresh:
-        return {"result": json.loads(cache.read_text())}
+        return {"result": _read(cache)}
 
     def work(update, stopped):
         update(0.1, "Aligning model B to model A")
         run = _run(req.run_id)
         if req.a not in run.models or req.b not in run.models:
             raise ValueError("Both seeds must be trained in this run.")
-        r = pair_report(run, req.a, req.b)
-        cache.write_text(json.dumps(r))
-        return r
+        return _write(cache, pair_report(run, req.a, req.b))
 
     return {"job": jobs.submit("pair", f"Compare seed {req.a} with seed {req.b}", work).id}
 
@@ -196,8 +212,7 @@ class HubReq(BaseModel):
 def _save_hub(kind, req, result):
     rid = time.strftime("%Y%m%d-%H%M%S") + "-" + kind
     blob = {"id": rid, "kind": kind, "a": req.a, "b": req.b, "created": time.time(), "result": result}
-    (HUB / f"{rid}.json").write_text(json.dumps(blob))
-    return blob
+    return _write(HUB / f"{rid}.json", blob)
 
 
 @app.post("/api/hub/weights")
@@ -234,7 +249,10 @@ def hub_acts(req: HubReq):
 def hub_history():
     out = []
     for f in sorted(HUB.glob("*.json"), reverse=True)[:50]:
-        b = json.loads(f.read_text())
+        try:
+            b = json.loads(f.read_text())
+        except Exception:
+            continue
         out.append({"id": b["id"], "kind": b["kind"], "a": b["a"], "b": b["b"], "created": b["created"]})
     return out
 
@@ -244,7 +262,7 @@ def hub_item(rid: str):
     f = HUB / f"{_safe_id(rid)}.json"
     if not f.exists():
         raise HTTPException(404, "No such result.")
-    return json.loads(f.read_text())
+    return _read(f)
 
 
 @app.get("/api/hub/corpus")
@@ -284,8 +302,7 @@ def trace_run(req: TraceReq):
         r = trace_report(req.a.strip(), req.b.strip(), req.prompt, update, learning=req.learning)
         rid = time.strftime("%Y%m%d-%H%M%S") + "-trace"
         blob = {"id": rid, "a": req.a, "b": req.b, "prompt": req.prompt, "created": time.time(), "result": r}
-        (TRACE / f"{rid}.json").write_text(json.dumps(blob))
-        return blob
+        return _write(TRACE / f"{rid}.json", blob)
 
     return {"job": jobs.submit("trace", f"Trace: {req.a} vs {req.b}", work).id}
 
@@ -294,7 +311,10 @@ def trace_run(req: TraceReq):
 def trace_history():
     out = []
     for f in sorted(TRACE.glob("*.json"), reverse=True)[:40]:
-        b = json.loads(f.read_text())
+        try:
+            b = json.loads(f.read_text())
+        except Exception:
+            continue
         out.append({"id": b["id"], "a": b["a"], "b": b["b"], "prompt": b["prompt"][:80], "created": b["created"]})
     return out
 
@@ -304,7 +324,7 @@ def trace_item(rid: str):
     f = TRACE / f"{_safe_id(rid)}.json"
     if not f.exists():
         raise HTTPException(404, "No such trace.")
-    return json.loads(f.read_text())
+    return _read(f)
 
 
 # ------------------------------------------------------------------ static
@@ -314,4 +334,7 @@ app.mount("/static", StaticFiles(directory=WEB), name="static")
 
 @app.get("/")
 def index():
-    return FileResponse(WEB / "index.html")
+    # Version the asset URLs so the browser never mixes old scripts with a new server.
+    html = (WEB / "index.html").read_text()
+    html = re.sub(r'(/static/[\w.-]+\.(?:js|css))"', rf'\1?v={VERSION}"', html)
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})

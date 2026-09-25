@@ -43,6 +43,7 @@ function decimals(ticks) {
   return d;
 }
 function lineChart(host, o) {
+  o = { ...o, series: o.series.map((s) => ({ ...s, points: s.points.filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1])) })) };
   const W = o.width || 560, H = o.height || 230, m = { l: 44, r: 12, t: 10, b: 34 };
   const pts = o.series.flatMap((s) => s.points);
   if (!pts.length) { host.textContent = "No data."; return; }
@@ -99,7 +100,7 @@ function heatmap(host, o) {
   const c0 = css("--soft") || "#e9edf2", c1 = o.color || css("--ab") || "#6b3fb3";
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", style: `max-width:${W}px`, role: "img", "aria-label": o.label || "heatmap" });
   o.matrix.forEach((r, i) => r.forEach((v, j) => {
-    const t = Math.max(0, Math.min(1, (v - lo) / (hi - lo || 1)));
+    const t = Number.isFinite(v) ? Math.max(0, Math.min(1, (v - lo) / (hi - lo || 1))) : 0;
     const rect = svgEl("rect", { x: lw + j * cell, y: th + i * cell, width: cell - 1.5, height: cell - 1.5, rx: 2, fill: mix(c0.startsWith("#") ? c0 : "#e9edf2", c1, t) }, svg);
     svgEl("title", {}, rect).textContent = `${o.rows[i]} × ${o.cols[j]}: ${fmt(v, 3)}`;
     if (o.values && cell >= 30) {

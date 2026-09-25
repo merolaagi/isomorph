@@ -210,3 +210,8 @@ button.wide { width: 100%; margin-bottom: 8px; }
 @media (max-width: 1100px) { .two { grid-template-columns: 1fr; } .flow { grid-template-columns: 1fr 90px 1fr; } }
 td.num { white-space: nowrap; }
 .two > * { min-width: 0; }
+/* keep the page from scrolling sideways when content is wide */
+.view { grid-template-columns: 320px minmax(0, 1fr); }
+.prose { grid-column: 1 / -1; }
+html, body { overflow-x: hidden; }
+@media (max-width: 900px) { .view { grid-template-columns: minmax(0, 1fr); } }
