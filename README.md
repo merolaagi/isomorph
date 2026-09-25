@@ -60,6 +60,16 @@ scripts/push.sh      commit and push to GitHub (merolaagi/isomorph)
 scripts/package.sh   build a uniquely named release archive
 ```
 
+## Put it online (Cloudflare tunnel)
+
+```bash
+./scripts/password.sh                 # required before going public; sign in with any username
+./scripts/service.sh install          # keep it running in the background, start at login
+./scripts/tunnel.sh isomorph.fueldeskpro.com   # add the ingress rule, restart cloudflared, print the CNAME target
+```
+
+Then add the DNS record it prints: `CNAME isomorph -> <tunnel-id>.cfargotunnel.com`, proxied. After that, `./run.sh` restarts the service instead of starting a second copy, so the upgrade one-liner keeps working. `./scripts/service.sh status|logs|stop|uninstall` manage it.
+
 ## Publish
 
 ```bash

@@ -4,6 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 PORT="${ISOMORPH_PORT:-47821}"
 [ -x .venv/bin/python ] || ./setup.sh
+# If Isomorph runs as a background service, restart that instead of starting a second copy.
+if [ -f "$HOME/Library/LaunchAgents/com.merolaagi.isomorph.plist" ]; then
+  ./scripts/service.sh restart
+  open "http://127.0.0.1:$PORT" >/dev/null 2>&1 || true
+  exit 0
+fi
 # Stop an older Isomorph server on this port (for example after an upgrade).
 OLD="$(pgrep -f "uvicorn server.app:app .*--port $PORT" || true)"
 if [ -n "$OLD" ]; then echo "Stopping previous Isomorph server ($OLD)"; kill $OLD 2>/dev/null || true; sleep 1; fi

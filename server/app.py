@@ -28,6 +28,42 @@ VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() 
 
 catalog.load_token(DATA)
 app = FastAPI(title="Isomorph", version=VERSION)
+
+
+def _password():
+    pw = os.environ.get("ISOMORPH_PASSWORD")
+    if pw:
+        return pw
+    sp = DATA / "settings.json"
+    if sp.exists():
+        try:
+            return json.loads(sp.read_text()).get("password")
+        except Exception:
+            return None
+    return None
+
+
+@app.middleware("http")
+async def _gate(request: Request, call_next):
+    """Optional password gate (HTTP Basic). Off unless a password is set, so
+    local use is unchanged; required when the app is exposed on the internet."""
+    pw = _password()
+    if pw:
+        import base64
+        import secrets
+
+        ok = False
+        h = request.headers.get("authorization", "")
+        if h.lower().startswith("basic "):
+            try:
+                _, _, given = base64.b64decode(h[6:]).decode().partition(":")
+                ok = secrets.compare_digest(given.encode(), pw.encode())
+            except Exception:
+                ok = False
+        if not ok:
+            return JSONResponse({"detail": "Sign in to use Isomorph."}, status_code=401,
+                                headers={"WWW-Authenticate": 'Basic realm="Isomorph", charset="UTF-8"'})
+    return await call_next(request)
 jobs = JobQueue()
 
 
@@ -61,7 +97,7 @@ def _safe_id(s):
 def health():
     from .hub.load import device
 
-    return {"version": VERSION, "torch": torch.__version__, "device": device(), "python": platform.python_version(),
+    return {"version": VERSION, "protected": bool(_password()), "torch": torch.__version__, "device": device(), "python": platform.python_version(),
             "threads": torch.get_num_threads(), "data": str(DATA)}
 
 
