@@ -307,6 +307,21 @@ def trace_run(req: TraceReq):
     return {"job": jobs.submit("trace", f"Trace: {req.a} vs {req.b}", work).id}
 
 
+class AnatomyReq(BaseModel):
+    spec: str
+    prompt: str | None = None
+
+
+@app.post("/api/trace/anatomy")
+def trace_anatomy(req: AnatomyReq):
+    from .trace.anatomy import anatomy_report
+
+    def work(update, stopped):
+        return anatomy_report(req.spec.strip(), req.prompt, update)
+
+    return {"job": jobs.submit("anatomy", f"Architecture of {req.spec}", work).id}
+
+
 @app.get("/api/trace/history")
 def trace_history():
     out = []

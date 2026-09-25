@@ -18,6 +18,7 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 
 **Side by side.** Two models (Hugging Face names or local folders), one prompt:
 - *Workflow*: an animated layer-by-layer view of both models. At each layer, what each model would predict if it stopped there (logit lens), how far apart the two predictions are (Jensen-Shannon divergence), and how far apart their internal states are after an affine map fitted on other text, relative to the typical gap.
+- *Architecture*: a post-mortem of the model read from its own code. A flowchart of the forward pass (embedding, each block's norms, attention and MLP, residual adds, final norm, output layer) where every step shows its math, the exact weight tensors it reads or "no weights", the source code that runs it, and on your prompt how large its output is and how much the loss rises when it is removed.
 - *Attention*: every head's pattern for both models, with each head of A matched to B's most similar head.
 - *Neurons*: how few MLP neurons carry 90% of the activity for each token, and which ones.
 - *If trained on this*: one normalised gradient step on the prompt for each model: loss before and after, where the change lands by layer, and how low-rank each matrix's update is.

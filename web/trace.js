@@ -1,7 +1,7 @@
 "use strict";
 // Side-by-side dashboard: one prompt, two models. Uses helpers from app.js and charts.js.
 (function () {
-  const T = { data: null, pos: 0, layer: 0, timer: null, tab: "flow", files: {}, weights: null };
+  const T = { data: null, pos: 0, layer: 0, timer: null, tab: "flow", files: {}, weights: null, anat: {}, anSide: "a", anLayer: 0, anNode: "attn" };
   const tokLabel = (t) => String(t).replace(/\n/g, "↵").replace(/^ /, "␣").replace(/ $/, "␣") || "∅";
   const depthB = (i, la, lb) => Math.round((i * lb) / Math.max(1, la));
 
@@ -55,7 +55,7 @@
     if (T.data && T.data.a === a && T.data.b === b) return;
     if (!T.data || T.data.a !== a || T.data.b !== b) {
       T.data = { a, b, prompt: null, result: null };
-      T.files = {}; T.weights = null;
+      T.files = {}; T.weights = null; T.anat = {};
     }
     frame();
   }
@@ -65,7 +65,8 @@
     const r = blob.result;
     const prevFiles = T.data && T.data.a === blob.a && T.data.b === blob.b ? T.files : {};
     const prevWeights = T.data && T.data.a === blob.a && T.data.b === blob.b ? T.weights : null;
-    T.data = blob; T.files = prevFiles; T.weights = prevWeights;
+    const prevAnat = T.data && T.data.a === blob.a && T.data.b === blob.b && T.data.prompt === blob.prompt ? T.anat : {};
+    T.data = blob; T.files = prevFiles; T.weights = prevWeights; T.anat = prevAnat;
     T.pos = r.A.tokens.length - 1;
     T.layer = r.A.layers;
     T.tab = "flow";
@@ -105,7 +106,7 @@
     return s;
   }
 
-  const TABS = [["flow", "Workflow"], ["attention", "Attention"], ["neurons", "Neurons"], ["learning", "If trained on this"], ["files", "Weight files"], ["weights", "Weight patterns"]];
+  const TABS = [["flow", "Workflow"], ["arch", "Architecture"], ["attention", "Attention"], ["neurons", "Neurons"], ["learning", "If trained on this"], ["files", "Weight files"], ["weights", "Weight patterns"]];
   function renderTabs() {
     const bar = $("#tr-tabs");
     if (!bar) return;
@@ -123,7 +124,7 @@
     body.innerHTML = "";
     const needTrace = ["flow", "attention", "neurons", "learning"].includes(T.tab);
     if (needTrace && !hasTrace) { body.innerHTML = `<p class="muted">Trace a prompt to see this view.</p>`; return; }
-    ({ flow, attention, neurons, learning, files, weights })[T.tab](body);
+    ({ flow, arch, attention, neurons, learning, files, weights })[T.tab](body);
   }
 
   function tokenChips(host, onPick) {
@@ -444,6 +445,137 @@
       host.innerHTML = `<p class="spinner">Comparing weights…</p>`;
       runJob("/api/hub/weights", { a, b }, (blob) => { T.weights = blob.result; if (T.tab === "weights") { host.innerHTML = ""; renderWeights(host, blob.result); } });
     };
+  }
+
+  // ---------------------------------------------------------------- architecture
+  function arch(body) {
+    const d = T.data;
+    const bar = document.createElement("div");
+    bar.className = "player";
+    bar.innerHTML = `<span class="muted">Model</span>
+      <button class="ghost small" data-s="a" aria-pressed="${T.anSide === "a"}"><span class="headA">A</span> ${esc(d.a.split("/").pop())}</button>
+      <button class="ghost small" data-s="b" aria-pressed="${T.anSide === "b"}"><span class="headB">B</span> ${esc(d.b.split("/").pop())}</button>`;
+    bar.querySelectorAll("button").forEach((b) => (b.onclick = () => { T.anSide = b.dataset.s; T.anLayer = 0; renderTabs(); }));
+    body.appendChild(bar);
+    const host = document.createElement("div");
+    body.appendChild(host);
+    const side = T.anSide;
+    if (T.anat[side]) return archView(host, T.anat[side], side);
+    const spec = side === "a" ? d.a : d.b;
+    const prompt = d.prompt || $("#tr-prompt").value.trim();
+    host.innerHTML = `<p class="spinner">Reading the code and structure of ${esc(spec)}…</p>`;
+    runJob("/api/trace/anatomy", { spec, prompt }, (r) => { T.anat[side] = r; if (T.tab === "arch" && T.anSide === side) archView(host, r, side); });
+  }
+
+  const PARAMS = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : String(n));
+  const sumW = (ws) => (ws || []).reduce((a, w) => a + w.params, 0);
+
+  function archView(host, r, side) {
+    const I = r.info, imp = r.impact;
+    const col = side === "a" ? "var(--a)" : "var(--b)";
+    const L = Math.min(T.anLayer, I.layers - 1);
+    host.innerHTML = "";
+    let lede = `${esc(I.class)}: ${I.layers} blocks, ${I.d_model}-dimensional residual stream, ${I.heads} attention heads of ${I.d_head} dims, ${I.d_ff ? `${I.d_ff} MLP neurons per block` : "MLP"}, ${PARAMS(I.total_params)} parameters. `;
+    lede += I.parallel_residual ? "Attention and MLP run side by side in each block and are added to the stream together. " : "Attention runs first, then the MLP, each adding to the stream in turn. ";
+    lede += I.rotary ? "Position is injected by rotating queries and keys, not by a learned vector. " : I.learned_positions ? "Position comes from a learned vector added at the start. " : "";
+    if (imp) {
+      const worst = imp.layers.flatMap((l) => [["attention", l.layer, l.attn_dloss], ["MLP", l.layer, l.mlp_dloss]]).filter((x) => x[2] !== undefined).sort((a, b) => b[2] - a[2])[0];
+      if (worst) lede += `On your prompt, the single most important step is the <b>${worst[0]} of layer ${worst[1]}</b>: removing it raises the loss by ${fmt(worst[2], 3)}.`;
+    }
+    host.insertAdjacentHTML("beforeend", `<p class="finding" style="font-size:18px">${lede}</p>`);
+
+    // where the parameters live
+    const G = I.param_groups, tot = Object.values(G).reduce((a, b) => a + b, 0) || 1;
+    const gcol = { embedding: "#2446c7", attention: "#6b3fb3", mlp: "#c23a6b", norms: "#1f8a70", unembedding: "#b7791f", other: "#5f6b7a" };
+    host.insertAdjacentHTML("beforeend", `<div class="anatomy" title="Where the parameters live">${Object.entries(G).filter(([, v]) => v > 0).map(([k, v]) =>
+      `<div style="flex:${v / tot};background:${gcol[k]}" title="${k}: ${PARAMS(v)}">${v / tot > 0.08 ? `${k} ${pct(v / tot)}` : ""}</div>`).join("")}</div>
+      <p class="sub">Where the ${PARAMS(I.total_params)} parameters live: ${Object.entries(G).filter(([, v]) => v > 0).map(([k, v]) => `<span style="color:${gcol[k]}">■</span> ${k} ${PARAMS(v)}`).join(", ")}${I.tied_embeddings ? ". The output layer reuses the embedding table." : "."}</p>`);
+
+    const wrap = document.createElement("div");
+    wrap.className = "archwrap";
+    host.appendChild(wrap);
+    const chart = document.createElement("div");
+    chart.className = "chartcol";
+    const detail = document.createElement("div");
+    detail.className = "detailcol";
+    wrap.append(chart, detail);
+
+    const nodes = r.nodes;
+    const block = nodes.find((n) => n.id === "block");
+    const byId = {};
+    for (const n of nodes) byId[n.id] = n;
+    for (const c of block.children) byId[c.id] = c;
+    const row = imp ? imp.layers[L] : null;
+
+    const card = (n, extra = "") => {
+      const w = sumW(n.weights);
+      const badge = n.has_weights ? `<span class="wbadge">${w ? `${PARAMS(w)} weights` : "weights"}${n.kind === "attn" || n.kind === "mlp" || n.kind === "norm" ? " per block" : ""}</span>` : `<span class="nobadge">no weights</span>`;
+      return `<button class="fnode ${n.has_weights ? "hasw" : "now"} k-${n.kind} ${T.anNode === n.id ? "sel" : ""}" data-id="${n.id}" style="--c:${col}">
+        <span class="fl">${esc(n.label)}</span>${badge}${extra}</button>`;
+    };
+    const arrow = `<div class="farrow" aria-hidden="true"></div>`;
+    const imps = (kind) => {
+      if (!row || row[`${kind}_norm`] === undefined) return "";
+      const dl = row[`${kind}_dloss`];
+      return `<span class="fimp">output ${fmt(row[`${kind}_norm`], 1)} vs stream ${fmt(row.resid_in, 1)}; removing it: loss ${dl >= 0 ? "+" : ""}${fmt(dl, 3)}${row[`${kind}_flips`] ? ", changes the answer" : ""}</span>`;
+    };
+    let html = card(byId.tokens) + arrow + card(byId.embed) + arrow;
+    html += `<div class="fblock"><div class="fbhead"><button class="linkbtn" data-id="block">${esc(block.label)}</button>
+      <label class="fbl">Layer <input type="range" id="an-layer" min="0" max="${I.layers - 1}" value="${L}"> <b id="an-lab">${L}</b></label></div>
+      <div class="fstream">residual stream in: h<sup>${L}</sup></div>`;
+    if (block.parallel) {
+      html += `<div class="fpar"><div>${card(byId.ln1)}${arrow}${card(byId.attn, imps("attn"))}</div><div>${card(byId.ln2)}${arrow}${card(byId.mlp, imps("mlp"))}</div></div>${arrow}${card(byId.add)}`;
+    } else {
+      html += `${card(byId.ln1)}${arrow}${card(byId.attn, imps("attn"))}${arrow}${card(byId.add)}${arrow}${card(byId.ln2)}${arrow}${card(byId.mlp, imps("mlp"))}${arrow}${card(byId.add)}`;
+    }
+    html += `<div class="fstream">residual stream out: h<sup>${L + 1}</sup>, repeated for all ${I.layers} blocks</div></div>`;
+    html += arrow + (byId.fnorm ? card(byId.fnorm) + arrow : "") + card(byId.unembed) + arrow + card(byId.softmax, imp ? `<span class="fimp">predicts “${esc(tokLabel(imp.prediction))}” at ${pct(imp.prediction_p)}</span>` : "");
+    chart.innerHTML = html;
+    chart.querySelectorAll("[data-id]").forEach((b) => (b.onclick = () => { T.anNode = b.dataset.id; archView(host, r, side); }));
+    chart.querySelector("#an-layer").oninput = (e) => { T.anLayer = +e.target.value; archView(host, r, side); };
+
+    // detail panel
+    const n = byId[T.anNode] || byId.attn;
+    let dh = `<h3>${esc(n.label)}${n.id === "block" ? "" : ["ln1", "attn", "ln2", "mlp", "add"].includes(n.id) ? `, layer ${L}` : ""}</h3>`;
+    if (n.note) dh += `<p class="sub">${esc(n.note)}</p>`;
+    if (n.math && n.math.length) dh += `<div class="math">${n.math.map(esc).join("<br>")}</div>`;
+    if (n.steps) {
+      dh += `<ol class="steps">${n.steps.map((st) => `<li class="${st.has_weights ? "hasw" : "now"}" style="--c:${col}"><div class="sl">${esc(st.label)} ${st.has_weights ? `<span class="wbadge">${PARAMS(sumW(st.weights))} weights</span>` : `<span class="nobadge">no weights</span>`}</div>
+        <div class="math">${st.math.map(esc).join("<br>")}</div>${st.weights && st.weights.length ? `<div class="wlist">${st.weights.map((w) => `${esc(w.name)} <span class="muted">${w.shape.join(" × ")}</span>`).join("<br>")}</div>` : ""}</li>`).join("")}</ol>`;
+    }
+    if (n.id === "block") dh += `<p class="sub">${PARAMS(n.params_per_block)} parameters per block, ${I.layers} blocks.</p>`;
+    if (row && (n.id === "attn" || n.id === "mlp")) {
+      const k = n.id;
+      dh += `<div class="kv" style="margin:12px 0"><div><div class="k">Output size, layer ${L}</div><div class="v" style="font-size:17px">${fmt(row[`${k}_norm`], 2)}</div></div>
+        <div><div class="k">Stream size going in</div><div class="v" style="font-size:17px">${fmt(row.resid_in, 2)}</div></div>
+        <div><div class="k">Loss change if removed</div><div class="v" style="font-size:17px">${row[`${k}_dloss`] >= 0 ? "+" : ""}${fmt(row[`${k}_dloss`], 3)}</div></div>
+        <div><div class="k">Change in the answer's probability</div><div class="v" style="font-size:17px">${row[`${k}_dprob`] >= 0 ? "+" : ""}${pct(row[`${k}_dprob`], 1)}</div></div></div>`;
+    }
+    if (n.weights && n.weights.length && !n.steps) {
+      dh += `<table style="margin-top:10px"><thead><tr><th>Weight tensor</th><th>Shape</th><th class="num">Parameters</th></tr></thead><tbody>${
+        n.weights.map((w) => `<tr><td>${esc(w.name)}</td><td class="muted">${w.shape.join(" × ")}</td><td class="num">${w.params.toLocaleString()}</td></tr>`).join("")}</tbody></table>`;
+    }
+    if (n.code) dh += `<p class="sub" style="margin:14px 0 4px">The code that runs this step: <b>${esc(n.code.cls)}.forward</b> in ${esc(n.code.file)}, line ${n.code.line}</p><pre class="code">${esc(n.code.code)}</pre>`;
+    detail.innerHTML = `<div class="panel">${dh}</div>`;
+
+    // impact over depth
+    if (imp) {
+      const [pp, pb] = panel("How much each layer matters on this prompt",
+        `Loss change when one step's output is removed (higher means the model relied on it). Baseline loss ${fmt(imp.loss, 3)} over ${imp.tokens} tokens.`);
+      pp.style.marginTop = "18px";
+      host.appendChild(pp);
+      groupedBars(pb, { labels: imp.layers.map((l) => `L${l.layer}`), series: [
+        { name: "Remove attention", color: "#6b3fb3", values: imp.layers.map((l) => l.attn_dloss ?? null) },
+        { name: "Remove MLP", color: "#c23a6b", values: imp.layers.map((l) => l.mlp_dloss ?? null) }], yLabel: "Loss change" });
+      const [qp, qb] = panel("How loudly each step writes", "Average size of each step's output compared with the residual stream it adds to.");
+      qp.style.marginTop = "18px";
+      host.appendChild(qp);
+      lineChart(qb, { series: [
+        { name: "Residual stream", color: css("--muted"), dash: "4 3", points: imp.layers.map((l) => [l.layer, l.resid_in]), dots: true },
+        { name: "Attention output", color: "#6b3fb3", points: imp.layers.map((l) => [l.layer, l.attn_norm]).filter((p) => p[1] !== undefined), dots: true },
+        { name: "MLP output", color: "#c23a6b", points: imp.layers.map((l) => [l.layer, l.mlp_norm]).filter((p) => p[1] !== undefined), dots: true }], xLabel: "Layer", yMin: 0 });
+    }
+    if (I.model_code) host.insertAdjacentHTML("beforeend", `<details class="panel" style="margin-top:18px"><summary>Top-level model code: ${esc(I.model_code.cls)}.forward (${esc(I.model_code.file)}, line ${I.model_code.line})</summary><pre class="code">${esc(I.model_code.code)}</pre></details>`);
   }
 
   presets();

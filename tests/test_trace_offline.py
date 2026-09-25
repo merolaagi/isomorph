@@ -57,3 +57,21 @@ def test_storage():
 if __name__ == "__main__":
     for f in [test_trace_same_tok, test_trace_cross, test_storage]:
         f(); print("ok", f.__name__)
+
+
+def test_anatomy():
+    from server.trace.anatomy import anatomy_report
+    for spec in ("a", "c"):
+        r = anatomy_report(spec, "Alice has three apples and gets two more.", loader=loader)
+        blk = [n for n in r["nodes"] if n["id"] == "block"][0]
+        attn = [c for c in blk["children"] if c["id"] == "attn"][0]
+        assert attn["steps"][0]["weights"], attn["steps"][0]
+        assert r["impact"]["layers"][0].get("mlp_dloss") is not None
+        assert r["info"]["model_code"]["code"]
+        print(spec, r["info"]["model_type"], "parallel", r["info"]["parallel_residual"], "rotary", r["info"]["rotary"],
+              "groups", r["info"]["param_groups"], "L0", r["impact"]["layers"][0])
+        json.dumps(r)
+
+
+if __name__ == "__main__":
+    test_anatomy(); print("ok test_anatomy")
