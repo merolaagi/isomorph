@@ -27,6 +27,10 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 - *Weight files*: the actual bytes: safetensors header, index entries, raw values, one weight bit by bit, value distributions and the full tensor index.
 - *Weight patterns*: raw and symmetry-invariant weight comparison.
 
+**Micro Opus (glass box).** [Micro Opus](https://github.com/merolaagi/microopus) (vendored in `vendor/microopus`) is a 7,440-weight transformer in plain numpy. Isomorph loads it as `microopus:words` and `microopus:names` through a PyTorch adapter that matches `model.py` to about 1e-7, so every view works on it. In the Architecture tab each step points at the exact lines of `model.py` where its weights enter, names the Micro Opus weight behind each PyTorch tensor, and lists where `backward()` and `step()` read the same weights. *Train another seed* runs Micro Opus's own `train.py` with a new seed (about 40 s for words) so two fully transparent models can be compared side by side. The Micro Opus app itself is bundled at `/static/microopus.html` (link in the header).
+
+For every Hugging Face model the Architecture tab now does the same for the transformers source: it highlights each line of a module's `forward()` that hands data to a sub-module holding weights, with the tensors and shapes involved.
+
 **Pattern library.** Profile any language model into a local library: a fingerprint over 239 fixed anchor texts (per-layer similarity structure, comparable across any architecture), attention-circuit scores (induction, previous-token, duplicate-token heads, attention sinks) with a causal test that removes the induction heads, linear probes for plural, tense, negation, sentiment and number magnitude with a shuffled-label control, and a weight-spectrum signature. Every measure is repeated on a randomly initialised copy of the same architecture, and a pattern only counts if the trained model clearly beats it. The library shows which patterns are shared, a similarity map, each model's agreement with the consensus at every depth, and for any new model what it shares and what it lacks.
 
 **Engine.** A research loop on top of everything measured:
@@ -67,7 +71,7 @@ server/lab/          tiny transformer, training, analyses
 server/hub/          checkpoint loading, weight and activation comparison
 server/trace/        file anatomy and side-by-side prompt tracing
 web/                 interface (no build step, no JS dependencies)
-tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py
+tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py, tests/test_microopus.py
 scripts/push.sh      commit and push to GitHub (merolaagi/isomorph)
 scripts/package.sh   build a uniquely named release archive
 ```

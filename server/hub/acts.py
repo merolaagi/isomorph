@@ -97,11 +97,12 @@ def lm_loss_with_injection(model, blocks, x, j, h_new):
 
 
 def activation_report(spec_a, spec_b, texts=None, max_tokens=1500, progress=lambda f, m: None, loader=load_lm):
-    texts = [t for t in (texts or CORPUS) if t.strip()]
     progress(0.02, f"Loading {spec_a}")
     tok_a, A, causal_a = loader(spec_a)
     progress(0.12, f"Loading {spec_b}")
     tok_b, B, causal_b = loader(spec_b)
+    own = getattr(tok_a, "calibration_texts", None) or getattr(tok_b, "calibration_texts", None)
+    texts = [t for t in (texts or own or CORPUS) if t.strip()]
     la = A.config.num_hidden_layers
     lb = B.config.num_hidden_layers
     pairs = _depth_map(la, lb, MAX_NEURON_LAYERS)

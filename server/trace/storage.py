@@ -79,7 +79,55 @@ def _hist(values, lo, hi, bins=40):
     return h.tolist()
 
 
+def _microopus_storage(spec):
+    from .. import microopus
+
+    path = microopus.weights_path(spec)
+    raw = path.read_text()
+    blob = json.loads(raw)
+    keys = [{"key": k, "bytes": len(json.dumps(v, separators=(",", ":")))} for k, v in blob.items()]
+    tensors, by_kind, values_by_kind = [], {}, {}
+    for name, v in blob["weights"].items():
+        a = np.array(v, dtype=np.float64)
+        nb = len(json.dumps(v, separators=(",", ":")))
+        kind = _kind(name)
+        tensors.append({"name": name, "file": path.name, "dtype": "JSON number", "shape": list(a.shape), "numel": int(a.size),
+                        "offset": None, "bytes": nb, "kind": kind, "layer": _layer_of(name)})
+        k = by_kind.setdefault(kind, {"kind": kind, "bytes": 0, "params": 0, "tensors": 0})
+        k["bytes"] += nb
+        k["params"] += int(a.size)
+        k["tensors"] += 1
+        values_by_kind.setdefault(kind, []).append(a.ravel())
+    hists = []
+    for kind, parts in values_by_kind.items():
+        v = np.concatenate(parts)
+        sd = float(v.std()) or 1.0
+        mu = float(v.mean())
+        lo, hi = mu - 4 * sd, mu + 4 * sd
+        hists.append({"kind": kind, "mean": mu, "std": sd, "min": float(v.min()), "max": float(v.max()),
+                      "near_zero": float((np.abs(v) < 0.01 * sd).mean()), "lo": lo, "hi": hi, "hist": _hist(v, lo, hi)})
+    we = blob["weights"]["W_E"]
+    first = float(we[0][0])
+    i0 = raw.find('"W_E"')
+    snippet = raw[i0:i0 + 220] + " …" if i0 >= 0 else ""
+    return {
+        "spec": spec, "source": str(path), "format": "json", "files": [{"name": path.name, "bytes": path.stat().st_size}],
+        "config": blob["config"], "total_params": sum(t["numel"] for t in tensors), "total_bytes": sum(t["bytes"] for t in tensors),
+        "header_bytes": 0, "metadata": None, "tensors": tensors, "by_kind": sorted(by_kind.values(), key=lambda k: -k["bytes"]),
+        "by_layer": [], "dtypes": {"JSON number": sum(t["numel"] for t in tensors)}, "zip_entries": [],
+        "preview": {"tensor": "W_E", "file": path.name, "dtype": "JSON number", "values": [float(x) for x in we[0][:8]],
+                    "bits": _float_bits(first, "F32"), "json_snippet": snippet},
+        "json_keys": keys, "vocab": blob["vocab"], "loss_curve": blob.get("loss_curve"),
+        "histograms": sorted(hists, key=lambda h: h["kind"]), "buffers": [], "nonfinite": 0,
+    }
+
+
 def storage_report(spec, progress=lambda f, m: None):
+    from .. import microopus
+
+    if microopus.is_spec(spec):
+        progress(0.5, f"Reading {spec}")
+        return _microopus_storage(spec)
     progress(0.05, f"Listing files for {spec}")
     files, source = _local_or_download(spec)
     listing = [{"name": n, "bytes": int(s or 0)} for n, _, s in files]

@@ -12,6 +12,8 @@ and then used as local folders.
 """
 import hashlib
 import json
+
+import numpy as np
 import os
 import re
 import time
@@ -155,6 +157,8 @@ def resolve(spec: str, data: Path, progress=lambda f, m: None):
     s = (spec or "").strip()
     if not s:
         raise ValueError("Enter a model name, link or folder.")
+    if s.startswith("microopus:"):
+        return s
     if os.path.isdir(os.path.expanduser(s)):
         return os.path.expanduser(s)
     hf = hf_from_url(s)
@@ -220,6 +224,16 @@ def search(q=None, task="text-generation", max_params=None, sort="downloads", li
 def info(spec, data: Path):
     """Check a model reference before using it."""
     s = (spec or "").strip()
+    if s.startswith("microopus:"):
+        from .. import microopus
+
+        try:
+            b = microopus.weights_blob(s)
+        except Exception as e:
+            return {"spec": s, "kind": "microopus", "error": str(e)}
+        n = sum(int(np.prod(np.array(v).shape)) for v in b["weights"].values())
+        return {"spec": s, "kind": "microopus", "arch": "Micro Opus (numpy transformer)", "params": n, "bytes": microopus.weights_path(s).stat().st_size,
+                "traceable": True, "weights": True, "note": f"{len(b['vocab'])}-token vocabulary, reads up to {b['config']['T']} tokens"}
     if os.path.isdir(os.path.expanduser(s)):
         p = Path(os.path.expanduser(s))
         cfg = json.loads((p / "config.json").read_text()) if (p / "config.json").exists() else {}

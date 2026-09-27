@@ -104,13 +104,14 @@ def _calibrate(spec_a, spec_b, tok_a, A, tok_b, B, progress):
     if key in _calib_cache:
         return _calib_cache[key]
     progress(0.35, "Calibrating: running both models on the probe corpus")
-    ids_a, hid_a, _, _ = run_model(tok_a, A, CORPUS, set())
-    ids_b, hid_b, _, _ = run_model(tok_b, B, CORPUS, set())
+    texts = getattr(tok_a, "calibration_texts", None) or getattr(tok_b, "calibration_texts", None) or CORPUS
+    ids_a, hid_a, _, _ = run_model(tok_a, A, texts, set())
+    ids_b, hid_b, _, _ = run_model(tok_b, B, texts, set())
     if ids_a != ids_b:
         _calib_cache[key] = None
         return None
     la, lb = len(hid_a[0]) - 1, len(hid_b[0]) - 1
-    half = len(CORPUS) // 2
+    half = len(texts) // 2
     maps = []
     for i in range(la + 1):
         j = round(i * lb / max(1, la))
@@ -204,11 +205,17 @@ def trace_report(spec_a, spec_b, prompt, progress=lambda f, m: None, loader=load
         raise ValueError("Tracing needs two causal language models (models that predict the next token).")
 
     progress(0.2, "Running the prompt through both models")
+    for t in (tok_a, tok_b):
+        if hasattr(t, "dropped"):
+            t.dropped = 0
     ids_a, hid_a, log_a, att_a, act_a = _forward(tok_a, A, prompt)
     ids_b, hid_b, log_b, att_b, act_b = _forward(tok_b, B, prompt)
+    dropped = [(n, getattr(t, "dropped", 0)) for n, t in (("A", tok_a), ("B", tok_b)) if getattr(t, "dropped", 0)]
     la, lb = len(hid_a) - 1, len(hid_b) - 1
     same_tok = ids_a == ids_b
     notes = []
+    for n, k in dropped:
+        notes.append(f"Model {n} skipped {k} piece{'s' if k != 1 else ''} of the prompt that are not in its vocabulary. Micro Opus words knows about 30 words; the names model reads lowercase letters.")
     if not same_tok:
         notes.append("The two models split the prompt into different tokens, so per-token divergence and attention matching are not defined. Each model's own trace is still shown.")
 

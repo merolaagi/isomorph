@@ -11,6 +11,7 @@
     { t: "Small vs bigger sibling", d: "Pythia 70M vs 160M: same data and tokenizer, twice the depth.", a: "EleutherAI/pythia-70m", b: "EleutherAI/pythia-160m" },
     { t: "Teacher vs distilled student", d: "GPT-2 small vs DistilGPT-2, trained to imitate it with half the layers.", a: "openai-community/gpt2", b: "distilbert/distilgpt2" },
     { t: "Early vs finished", d: "Pythia 70M at step 3000 vs the final checkpoint.", a: "EleutherAI/pythia-70m@step3000", b: "EleutherAI/pythia-70m" },
+    { t: "Micro Opus: words vs names", d: "Two 7,440-weight glass-box models; no download.", a: "microopus:words", b: "microopus:names", prompt: "the big dog ran to the" },
   ];
 
   function presets() {
@@ -18,7 +19,7 @@
     for (const p of PRESETS) {
       const li = document.createElement("li");
       li.innerHTML = `<button><span class="t1">${esc(p.t)}</span><span class="t2">${esc(p.d)}</span></button>`;
-      li.querySelector("button").onclick = () => { $("#tr-a").value = p.a; $("#tr-b").value = p.b; presetFilled(["#tr-a", "#tr-b"], ["#tr-run"], `A and B are now ${p.a.split("/").pop()} and ${p.b.split("/").pop()}. Press Trace prompt to run.`); };
+      li.querySelector("button").onclick = () => { $("#tr-a").value = p.a; $("#tr-b").value = p.b; if (p.prompt) $("#tr-prompt").value = p.prompt; presetFilled(["#tr-a", "#tr-b"], ["#tr-run"], `A and B are now ${p.a.split("/").pop()} and ${p.b.split("/").pop()}. Press Trace prompt to run.`); };
       ul.appendChild(li);
     }
   }
@@ -374,12 +375,13 @@
     host.innerHTML = "";
     const [p0, b0] = panel(`<span class="${cls}">${side.toUpperCase()}</span>: ${esc(r.spec)}`, esc(r.source));
     b0.className = "kv";
-    b0.innerHTML = [["Parameters", Number(r.total_params).toLocaleString()], ["Tensor bytes", bytes(r.total_bytes)], ["Format", r.format === "safetensors" ? "safetensors" : "PyTorch zip (.bin)"], ["Number types", Object.keys(r.dtypes).join(", ")]]
+    b0.innerHTML = [["Parameters", Number(r.total_params).toLocaleString()], ["Tensor bytes", bytes(r.total_bytes)], ["Format", r.format === "safetensors" ? "safetensors" : r.format === "json" ? "JSON text" : "PyTorch zip (.bin)"], ["Number types", Object.keys(r.dtypes).join(", ")]]
       .map(([k, v]) => `<div><div class="k">${k}</div><div class="v" style="font-size:16px">${v}</div></div>`).join("");
     host.appendChild(p0);
 
     const [p1, b1] = panel("Anatomy of the file", r.format === "safetensors"
       ? "First 8 bytes give the length of a JSON index; the index lists every tensor's type, shape and byte range; the rest is raw numbers packed end to end."
+      : r.format === "json" ? "Micro Opus stores its weights as readable text rather than packed binary numbers."
       : "A zip archive: a pickled index (data.pkl) plus one raw data blob per tensor.");
     p1.style.marginTop = "18px";
     const palette = { embedding: "#2446c7", attention: "#6b3fb3", mlp: "#c23a6b", norm: "#1f8a70", unembedding: "#b7791f", head: "#b7791f", other: "#5f6b7a" };
@@ -392,6 +394,10 @@
       html += `<p class="sub" style="margin:10px 0 4px">First 8 bytes (index length ${r.preview.header_len.toLocaleString()} bytes):</p><div class="hex">${esc(r.preview.header_prefix)}</div>`;
       html += `<p class="sub" style="margin:10px 0 4px">Index entry for <b>${esc(r.preview.tensor)}</b>:</p><div class="hex">${esc(r.preview.header_json)}</div>`;
       html += `<p class="sub" style="margin:10px 0 4px">Its first bytes at offset ${r.preview.offset.toLocaleString()}, and what they mean as ${r.preview.dtype} numbers:</p><div class="hex">${esc(r.preview.hex)}\n→ ${r.preview.values.map((v) => v.toPrecision(5)).join(", ")}</div>`;
+    } else if (r.format === "json") {
+      html += `<p class="sub">A plain JSON text file. Its parts and their sizes:</p><div class="anatomy">${r.json_keys.map((k, i) => `<div style="flex:${k.bytes};background:${["#5f6b7a", "#1f8a70", "#b7791f", "#6b3fb3", "#2446c7", "#c23a6b"][i % 6]}" title="${esc(k.key)}: ${bytes(k.bytes)}">${k.bytes / r.json_keys.reduce((a, b) => a + b.bytes, 0) > 0.08 ? esc(k.key) : ""}</div>`).join("")}</div>
+        <p class="sub">${r.json_keys.map((k) => `${esc(k.key)} ${bytes(k.bytes)}`).join(", ")}. The weights are ${r.tensors.length} named tensors written as nested lists of decimal numbers, so every value is readable in any text editor. Vocabulary: ${esc(r.vocab.slice(0, 12).join(" "))}${r.vocab.length > 12 ? " …" : ""}.</p>
+        <p class="sub" style="margin:10px 0 4px">The start of the weights section, as stored:</p><div class="hex">${esc(r.preview.json_snippet)}</div>`;
     } else if (r.zip_entries.length) {
       html += `<div class="hex">${r.zip_entries.slice(0, 14).map((z) => `${esc(z.name)}  ${bytes(z.bytes)}`).join("\n")}</div>`;
       if (r.preview) html += `<p class="sub" style="margin:10px 0 4px">First values of <b>${esc(r.preview.tensor)}</b>:</p><div class="hex">${r.preview.values.map((v) => v.toPrecision(5)).join(", ")}</div>`;
@@ -469,6 +475,19 @@
     runJob("/api/trace/anatomy", { spec, prompt }, (r) => { T.anat[side] = r; if (T.tab === "arch" && T.anSide === side) archView(host, r, side); });
   }
 
+  function codeView(c) {
+    const lines = c.code.replace(/\n$/, "").split("\n");
+    const hits = {};
+    for (const e of c.entries || []) hits[e.idx] = e;
+    const rows = lines.map((l, i) => {
+      const e = hits[i];
+      const tag = e ? (e.none ? `<span class="wtag none">no weights</span>` : `<span class="wtag">← ${e.weights.map((w) => esc(w.shapes && w.shapes.length ? w.shapes.join(", ") : w.name)).join("; ")}</span>`) : "";
+      return `<div class="cl ${e ? (e.none ? "hit none" : "hit") : ""}"><span class="ln">${c.line + i}</span><code>${esc(l) || " "}</code>${tag}</div>`;
+    }).join("");
+    const n = (c.entries || []).filter((e) => !e.none).length;
+    return `<p class="sub" style="margin:14px 0 4px">The code that runs this step: <b>${esc(c.cls)}.forward</b> in ${esc(c.file)}, line ${c.line}. ${n ? `Highlighted: the ${n} line${n === 1 ? "" : "s"} where weights enter.` : "No line in it reads a weight directly."}${c.also ? ` Also: ${esc(c.also)}.` : ""}</p><div class="codebox">${rows}</div>`;
+  }
+
   const PARAMS = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : String(n));
   const sumW = (ws) => (ws || []).reduce((a, w) => a + w.params, 0);
 
@@ -477,13 +496,14 @@
     const col = side === "a" ? "var(--a)" : "var(--b)";
     const L = Math.min(T.anLayer, I.layers - 1);
     host.innerHTML = "";
-    let lede = `${esc(I.class)}: ${I.layers} blocks, ${I.d_model}-dimensional residual stream, ${I.heads} attention heads of ${I.d_head} dims, ${I.d_ff ? `${I.d_ff} MLP neurons per block` : "MLP"}, ${PARAMS(I.total_params)} parameters. `;
+    let lede = `${I.microopus ? "Micro Opus" : esc(I.class)}: ${I.layers} blocks, ${I.d_model}-dimensional residual stream, ${I.heads} attention heads of ${I.d_head} dims, ${I.d_ff ? `${I.d_ff} MLP neurons per block` : "MLP"}, ${PARAMS(I.total_params)} parameters. `;
     lede += I.parallel_residual ? "Attention and MLP run side by side in each block and are added to the stream together. " : "Attention runs first, then the MLP, each adding to the stream in turn. ";
     lede += I.rotary ? "Position is injected by rotating queries and keys, not by a learned vector. " : I.learned_positions ? "Position comes from a learned vector added at the start. " : "";
     if (imp) {
       const worst = imp.layers.flatMap((l) => [["attention", l.layer, l.attn_dloss], ["MLP", l.layer, l.mlp_dloss]]).filter((x) => x[2] !== undefined).sort((a, b) => b[2] - a[2])[0];
       if (worst) lede += `On your prompt, the single most important step is the <b>${worst[0]} of layer ${worst[1]}</b>: removing it raises the loss by ${fmt(worst[2], 3)}.`;
     }
+    if (I.microopus) lede += ` This is Micro Opus: every step below points at the exact lines of its numpy model.py, and the same forward pass is animated weight by weight in the <a href="/static/microopus.html" target="_blank" rel="noopener">Micro Opus app</a>.`;
     host.insertAdjacentHTML("beforeend", `<p class="finding" style="font-size:18px">${lede}</p>`);
 
     // where the parameters live
@@ -543,7 +563,7 @@
     if (n.math && n.math.length) dh += `<div class="math">${n.math.map(esc).join("<br>")}</div>`;
     if (n.steps) {
       dh += `<ol class="steps">${n.steps.map((st) => `<li class="${st.has_weights ? "hasw" : "now"}" style="--c:${col}"><div class="sl">${esc(st.label)} ${st.has_weights ? `<span class="wbadge">${PARAMS(sumW(st.weights))} weights</span>` : `<span class="nobadge">no weights</span>`}</div>
-        <div class="math">${st.math.map(esc).join("<br>")}</div>${st.weights && st.weights.length ? `<div class="wlist">${st.weights.map((w) => `${esc(w.name)} <span class="muted">${w.shape.join(" × ")}</span>`).join("<br>")}</div>` : ""}</li>`).join("")}</ol>`;
+        <div class="math">${st.math.map(esc).join("<br>")}</div>${st.weights && st.weights.length ? `<div class="wlist">${st.weights.map((w) => `${esc(w.name)} <span class="muted">${w.shape.join(" × ")}</span>${w.alias ? ` <span class="alias">= ${esc(w.alias)}</span>` : ""}`).join("<br>")}</div>` : ""}</li>`).join("")}</ol>`;
     }
     if (n.id === "block") dh += `<p class="sub">${PARAMS(n.params_per_block)} parameters per block, ${I.layers} blocks.</p>`;
     if (row && (n.id === "attn" || n.id === "mlp")) {
@@ -555,10 +575,12 @@
     }
     if (n.weights && n.weights.length && !n.steps) {
       dh += `<table style="margin-top:10px"><thead><tr><th>Weight tensor</th><th>Shape</th><th class="num">Parameters</th></tr></thead><tbody>${
-        n.weights.map((w) => `<tr><td>${esc(w.name)}</td><td class="muted">${w.shape.join(" × ")}</td><td class="num">${w.params.toLocaleString()}</td></tr>`).join("")}</tbody></table>`;
+        n.weights.map((w) => `<tr><td>${esc(w.name)}${w.alias ? `<div class="alias">= ${esc(w.alias)}</div>` : ""}</td><td class="muted">${w.shape.join(" × ")}</td><td class="num">${w.params.toLocaleString()}</td></tr>`).join("")}</tbody></table>`;
     }
-    if (n.code) dh += `<p class="sub" style="margin:14px 0 4px">The code that runs this step: <b>${esc(n.code.cls)}.forward</b> in ${esc(n.code.file)}, line ${n.code.line}</p><pre class="code">${esc(n.code.code)}</pre>`;
+    if (n.code) dh += codeView(n.code);
     detail.innerHTML = `<div class="panel">${dh}</div>`;
+    const cb = detail.querySelector(".codebox"), hit = cb && cb.querySelector(".cl.hit");
+    if (hit) cb.scrollTop = Math.max(0, hit.offsetTop - cb.offsetTop - 40);
 
     // impact over depth
     if (imp) {
@@ -577,8 +599,24 @@
         { name: "Attention output", color: "#6b3fb3", points: imp.layers.map((l) => [l.layer, l.attn_norm]).filter((p) => p[1] !== undefined), dots: true },
         { name: "MLP output", color: "#c23a6b", points: imp.layers.map((l) => [l.layer, l.mlp_norm]).filter((p) => p[1] !== undefined), dots: true }], xLabel: "Layer", yMin: 0 });
     }
-    if (I.model_code) host.insertAdjacentHTML("beforeend", `<details class="panel" style="margin-top:18px"><summary>Top-level model code: ${esc(I.model_code.cls)}.forward (${esc(I.model_code.file)}, line ${I.model_code.line})</summary><pre class="code">${esc(I.model_code.code)}</pre></details>`);
+    if (I.model_code) host.insertAdjacentHTML("beforeend", `<details class="panel" style="margin-top:18px"><summary>${I.microopus ? "The whole model.py" : `Top-level model code: ${esc(I.model_code.cls)}.forward`} (${esc(I.model_code.file)})</summary>${codeView(I.model_code)}</details>`);
   }
+
+  // ---------------------------------------------------------------- Micro Opus controls
+  const moSet = (a, b, prompt) => { $("#tr-a").value = a; $("#tr-b").value = b; $("#tr-prompt").value = prompt; presetFilled(["#tr-a", "#tr-b"], ["#tr-run"], `A is ${a}, B is ${b}. Press Trace prompt, or open the Architecture tab.`); };
+  $("#mo-pair").onclick = () => moSet("microopus:words", "microopus:names", "the big dog ran to the");
+  $("#mo-arch").onclick = () => {
+    $("#tr-a").value = "microopus:" + $("#mo-kind").value;
+    $("#tr-prompt").value = $("#mo-kind").value === "words" ? "the big dog ran to the" : "emm";
+    ensureShell(); T.anSide = "a"; T.tab = "arch"; renderTabs();
+  };
+  $("#mo-train").onclick = () => {
+    const kind = $("#mo-kind").value, seed = parseInt($("#mo-seed").value, 10) || 11;
+    runJob("/api/microopus/train", { kind, seed }, (r) => {
+      moSet(`microopus:${kind}`, r.spec, kind === "words" ? "the big dog ran to the" : "emm");
+      toast(`Trained ${r.spec}; it matches model.py to ${r.diff.toExponential(1)}.`);
+    });
+  };
 
   presets();
   history();

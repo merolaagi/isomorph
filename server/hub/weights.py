@@ -32,6 +32,9 @@ def _svals(w):
 
 
 def _layer_of(name):
+    mm = re.match(r"^L(\d+)\.", name)
+    if mm:
+        return int(mm.group(1))
     m = re.search(r"\.(\d+)\.", "." + name + ".")
     return int(m.group(1)) if m else None
 
@@ -44,6 +47,11 @@ def _kind(name):
     learned: causal-mask tables, masked-bias fillers, rotary frequencies."""
     if BUFFER_RE.search(name):
         return "buffer"
+    base = name.split(".")[-1]
+    micro = {"W_E": "embedding", "W_P": "embedding", "W_U": "unembedding", "g1": "norm", "g2": "norm", "g_f": "norm",
+             "W_Q": "attention", "W_K": "attention", "W_V": "attention", "W_O": "attention", "W_up": "mlp", "W_down": "mlp"}
+    if base in micro and (name == base or re.match(r"^L\d+\.", name)):
+        return micro[base]
     n = name.lower()
     for key, label in (("lm_head", "unembedding"), ("embed_out", "unembedding"), ("embed", "embedding"),
                        ("wte", "embedding"), ("wpe", "embedding"), ("norm", "norm"), ("ln", "norm"), ("attn", "attention"),

@@ -265,6 +265,9 @@ def weight_signature(model):
 def random_twin(model):
     from transformers import AutoModelForCausalLM
 
+    if hasattr(model, "isomorph_random_twin"):
+        return model.isomorph_random_twin().to(next(model.parameters()).device)
+
     torch.manual_seed(0)
     try:
         twin = AutoModelForCausalLM.from_config(model.config, attn_implementation="eager")
@@ -274,6 +277,8 @@ def random_twin(model):
 
 
 def profile_model(spec, resolved, atlas_dir: Path, progress=lambda f, m: None, loader=load_lm, baseline=True):
+    if str(resolved).startswith("microopus:"):
+        raise ValueError("Micro Opus models know only a few dozen words or the 26 letters, so the library's English probes would say nothing about them. Use Side by side, Architecture and the weight views instead.")
     progress(0.02, f"Loading {spec}")
     tok, model, causal = loader(resolved)
     if not causal:

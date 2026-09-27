@@ -46,6 +46,11 @@ def fetch_weights(spec: str, progress=lambda f, m: None):
     """Download and return {tensor_name: float32 tensor} for any checkpoint layout."""
     from huggingface_hub import hf_hub_download
 
+    from .. import microopus
+
+    if microopus.is_spec(spec):
+        return OrderedDict(microopus.tensors(spec))
+
     if os.path.isdir(spec):
         local = sorted(p for p in os.listdir(spec) if p.endswith(".safetensors")) or \
             sorted(p for p in os.listdir(spec) if p.endswith(".bin"))
@@ -122,6 +127,11 @@ def device():
 
 def load_lm(spec: str):
     """(tokenizer, model, is_causal) for a transformers-compatible checkpoint."""
+    from .. import microopus
+
+    if microopus.is_spec(spec):
+        return _models.get(spec, lambda: microopus.load(spec))
+
     def make():
         from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
 

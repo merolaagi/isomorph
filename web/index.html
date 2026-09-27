@@ -23,6 +23,7 @@
     <button role="tab" data-view="lab" aria-selected="false">Ground-truth lab</button>
     <button role="tab" data-view="hub" aria-selected="false">Model statistics</button>
     <button role="tab" data-view="about" aria-selected="false">How it works</button>
+    <a class="navlink" href="/static/microopus.html" target="_blank" rel="noopener">Micro Opus ↗</a>
   </nav>
   <div class="env" id="env">Connecting…</div>
 </header>
@@ -51,6 +52,12 @@
         <button class="ghost" id="tr-files">Read weight files</button>
         <button class="ghost" id="tr-weights">Compare weights</button>
       </div>
+      <h2 class="mt">Glass-box models</h2>
+      <p class="hint">Micro Opus: 7,440 weights, written in plain numpy, every weight visible. Use it to see exactly where weights enter the code.</p>
+      <div class="row2"><button class="ghost" id="mo-pair">Words vs names</button><button class="ghost" id="mo-arch">Open its architecture</button></div>
+      <div class="mo-train"><label>Model<select id="mo-kind"><option value="words">words</option><option value="names">names</option></select></label>
+        <label>Seed<input id="mo-seed" type="number" value="11" min="0"></label><button class="ghost" id="mo-train">Train another seed</button></div>
+      <p class="hint">Training uses Micro Opus's own train.py: about 40 s for words, 90 s for names. The new copy then goes in as model B, next to the original.</p>
       <h2 class="mt">My models</h2>
       <ul class="runs" id="tr-saved"></ul>
       <h2 class="mt">Recently used</h2>

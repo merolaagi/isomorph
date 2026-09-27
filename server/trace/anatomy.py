@@ -20,6 +20,33 @@ from ..hub.load import load_lm
 MAX_SRC_LINES = 90
 
 
+def _entries(obj, lines):
+    """Lines of a forward() that hand data to a sub-module holding weights, or read
+    the module's own weights directly: the places where weights enter the code."""
+    kids = dict(obj.named_children()) if isinstance(obj, torch.nn.Module) else {}
+    own = dict(obj.named_parameters(recurse=False)) if isinstance(obj, torch.nn.Module) else {}
+    out = []
+    for i, line in enumerate(lines):
+        if line.strip().startswith("#"):
+            continue
+        ws, seen = [], set()
+        for n in re.findall(r"self\.(\w+)", line):
+            if n in seen:
+                continue
+            seen.add(n)
+            if n in kids:
+                ps = list(kids[n].named_parameters())
+                if ps:
+                    ws.append({"name": n, "params": sum(p.numel() for _, p in ps),
+                               "shapes": [f"{k} {'×'.join(map(str, p.shape))}" for k, p in ps[:3]] + (["…"] if len(ps) > 3 else [])})
+            elif n in own:
+                p = own[n]
+                ws.append({"name": n, "params": p.numel(), "shapes": [f"{n} {'×'.join(map(str, p.shape))}"]})
+        if ws:
+            out.append({"idx": i, "weights": ws})
+    return out
+
+
 def _src(obj):
     try:
         fn = obj.forward if hasattr(obj, "forward") else obj
@@ -27,10 +54,11 @@ def _src(obj):
         lines, start = inspect.getsourcelines(fn)
         path = inspect.getsourcefile(fn) or ""
         m = re.search(r"(transformers/.*)$", path)
-        text = "".join(lines)
-        if len(lines) > MAX_SRC_LINES:
-            text = "".join(lines[:MAX_SRC_LINES]) + f"    # … {len(lines) - MAX_SRC_LINES} more lines\n"
-        return {"file": m.group(1) if m else path.split("/")[-1], "line": start, "cls": type(obj).__name__, "code": text}
+        more = len(lines) - MAX_SRC_LINES
+        lines = lines[:MAX_SRC_LINES]
+        text = "".join(lines) + (f"    # … {more} more lines\n" if more > 0 else "")
+        return {"file": m.group(1) if m else path.split("/")[-1], "line": start, "cls": type(obj).__name__, "code": text,
+                "entries": _entries(obj, [l.rstrip("\n") for l in lines])}
     except (OSError, TypeError):
         return None
 
@@ -297,11 +325,80 @@ def _impact(model, tok, blocks, attn_name, mlp_name, prompt):
             "prediction": tok.decode([pred]), "prediction_p": round(base_p, 4), "layers": layers}
 
 
+MICRO_NODE_WEIGHTS = {"embed": ["W_E", "W_P"], "ln1": ["g1"], "attn": ["W_Q", "W_K", "W_V", "W_O"], "ln2": ["g2"],
+                      "mlp": ["W_up", "W_down"], "fnorm": ["g_f"], "unembed": ["W_U"],
+                      "block": ["g1", "W_Q", "W_K", "W_V", "W_O", "g2", "W_up", "W_down"]}
+MICRO_NO_WEIGHT = {"add": r"x = x \+", "softmax": r"softmax\(logits\)", "tokens": r"ids = np\.asarray"}
+
+
+def _micro_code(spec, node_id):
+    """For Micro Opus, point every step at the lines of its own model.py."""
+    from .. import microopus
+
+    sm = microopus.source_map(spec)
+    lines = sm["source"].splitlines()
+    starts = [i for i, l in enumerate(lines) if re.match(r"\s*def forward\(", l)]
+    a = starts[0]
+    b = next((i for i in range(a + 1, len(lines)) if re.match(r"\s{4}(def |# -)", lines[i]) or re.match(r"\s*@staticmethod", lines[i])), len(lines))
+    want = set(MICRO_NODE_WEIGHTS.get(node_id, []))
+    entries, elsewhere = [], {"backward": [], "step": []}
+    for e in sm["entries"]:
+        hit = [w for w in e["weights"] if w["short"] in want]
+        if not hit:
+            continue
+        if e["function"] == "forward" and a < e["line"] <= b:
+            entries.append({"idx": e["line"] - 1 - a, "weights": [{"name": w["name"], "params": None,
+                                                                    "shapes": [f"{w['name']} {'×'.join(map(str, w['shape'] or []))}"]} for w in hit]})
+        elif e["function"] in elsewhere:
+            elsewhere[e["function"]].append(e["line"])
+    pat = MICRO_NO_WEIGHT.get(node_id)
+    if pat:
+        for i in range(a, b):
+            if re.search(pat, lines[i]):
+                entries.append({"idx": i - a, "weights": [], "none": True})
+    note = []
+    if elsewhere["backward"]:
+        note.append(f"backward() reads the same weights on lines {', '.join(map(str, elsewhere['backward']))} to compute gradients")
+    if elsewhere["step"]:
+        note.append(f"step() reads them on lines {', '.join(map(str, elsewhere['step']))} when generating one token at a time")
+    return {"file": sm["file"], "line": a + 1, "cls": "MicroOpus", "code": "\n".join(lines[a:b]) + "\n", "entries": entries,
+            "also": "; ".join(note)}
+
+
+def _micro_annotate(spec, model, nodes):
+    from .. import microopus
+
+    alias = {k: v[0] + (" (stored transposed: model.py computes x @ W)" if v[1] else "") for k, v in microopus.param_map(model.mo_cfg["L"]).items()}
+
+    def fix_weights(ws):
+        for w in ws or []:
+            key = next((k for k in alias if k.endswith(w["name"]) or w["name"].endswith(k.split("model.")[-1])), None)
+            if key:
+                w["alias"] = re.sub(r"^L\d+\.", "L{l}.", alias[key])
+
+    def visit(n):
+        fix_weights(n.get("weights"))
+        for st in n.get("steps", []) or []:
+            fix_weights(st.get("weights"))
+        n["code"] = _micro_code(spec, n["id"]) if n["id"] in MICRO_NODE_WEIGHTS or n["id"] in MICRO_NO_WEIGHT else n.get("code")
+        for c in n.get("children", []) or []:
+            visit(c)
+
+    for n in nodes:
+        visit(n)
+
+
 def anatomy_report(spec, prompt=None, progress=lambda f, m: None, loader=load_lm):
     progress(0.1, f"Loading {spec}")
     tok, model, causal = loader(spec)
     progress(0.4, "Reading the model's code and structure")
     info, nodes, blocks, attn_name, mlp_name = _describe(model)
+    from .. import microopus
+
+    if microopus.is_spec(spec):
+        _micro_annotate(spec, model, nodes)
+        info["microopus"] = True
+        info["model_code"] = {"file": "vendor/microopus/model.py", "line": 1, "cls": "MicroOpus", "code": (microopus.VENDOR / "model.py").read_text(), "entries": []}
     impact = None
     if prompt and prompt.strip() and causal:
         progress(0.6, "Measuring each layer's impact on the prompt")

@@ -29,6 +29,9 @@ for d in (LAB, HUB, TRACE, ATLAS, ENGINE):
 VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "dev"
 
 catalog.load_token(DATA)
+from . import microopus  # noqa: E402
+
+microopus.set_data_dir(DATA)
 app = FastAPI(title="Isomorph", version=VERSION)
 
 
@@ -584,6 +587,33 @@ def anthropic_key(req: KeyReq):
 
     set_key(DATA / "settings.json", req.key)
     return {"has_key": bool(get_key(DATA / "settings.json"))}
+
+
+# ------------------------------------------------------------------ Micro Opus
+@app.get("/api/microopus")
+def microopus_info():
+    ver = (microopus.VENDOR / "VERSION").read_text().strip() if (microopus.VENDOR / "VERSION").exists() else "?"
+    return {"version": ver, "models": microopus.available(),
+            "check": {m: microopus.check_against_numpy(m) for m in ("microopus:words", "microopus:names")}}
+
+
+class MicroTrainReq(BaseModel):
+    kind: str = "words"
+    seed: int = Field(11, ge=0, le=10_000)
+    steps: int | None = Field(None, ge=100, le=20000)
+
+
+@app.post("/api/microopus/train")
+def microopus_train(req: MicroTrainReq):
+    if req.kind not in ("words", "names"):
+        raise HTTPException(400, "kind must be words or names.")
+
+    def work(update, stopped):
+        spec = microopus.train_seed(req.kind, req.seed, req.steps, update)
+        catalog.recent_add(DATA, spec)
+        return {"spec": spec, "diff": microopus.check_against_numpy(spec)}
+
+    return {"job": jobs.submit("microopus", f"Train Micro Opus {req.kind}, seed {req.seed}", work).id}
 
 
 # ------------------------------------------------------------------ autopilot
