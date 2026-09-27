@@ -389,3 +389,192 @@ def train_seed(kind, seed, steps=None, progress=lambda f, m: None):
     name = f"{kind}-seed{seed}"
     (work / "weights" / f"{kind}.json").replace(out_dir / f"{name}.json")
     return PREFIX + name
+
+
+# ------------------------------------------------------------------ the Micro Opus app, served by Isomorph
+def _np(spec):
+    mo = _vendor_module("model")
+    b = weights_blob(spec)
+    return mo.MicroOpus(W=b["weights"], cfg=b["config"], vocab=b["vocab"])
+
+
+def trace_json(name, ids):
+    """What Micro Opus's own server returns for /api/trace, computed by the vendored model.py."""
+    m = _np(PREFIX + name)
+    tr = {"ids": ids}
+    m.forward(ids, tr)
+    tr["ids"] = ids
+
+    def js(v):
+        if isinstance(v, np.ndarray):
+            a = np.round(v, 6).astype(object)
+            a[~np.isfinite(v)] = None
+            return a.tolist()
+        if isinstance(v, dict):
+            return {k: js(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [js(x) for x in v]
+        return v
+
+    return js(tr)
+
+
+def app_html():
+    """The bundled Micro Opus app, with every Micro Opus model Isomorph knows added to
+    its model menu and a button that sends browser-trained weights back to Isomorph.
+    Patches are applied at serve time; if a patch point is missing (a newer Micro Opus
+    build), the page is served unmodified apart from the extra models."""
+    html = (ROOT / "web" / "microopus.html").read_text()
+    extra = {}
+    for spec in available():
+        n = spec[len(PREFIX):]
+        if n in ("words", "names"):
+            continue
+        b = weights_blob(spec)
+        extra[n] = {k: b[k] for k in ("config", "vocab", "loss_curve", "weights", "eval", "corpus") if k in b}
+    patched = []
+    fallback = "(o, k) => o[k] || o[(window.MODELS[k] && window.MODELS[k].config.chars) ? 'names' : 'words']"
+    reps = [
+        (r"const PRESETS = (\{\n  words: .*?\n  names: .*?\n\});", lambda m: f"const PRESETS = new Proxy({m.group(1)}, {{ get: {fallback} }});"),
+        (r"const DEFAULT_PROMPT = (\{ words: '[^']*', names: '[^']*' \});", lambda m: f"const DEFAULT_PROMPT = new Proxy({m.group(1)}, {{ get: {fallback} }});"),
+        (r"t\.weights = \(\) => W;", lambda m: "t.weights = () => W; window.__MO_TRN = t;"),
+        (r"let TR = null, ENGINE = 'browser';", lambda m: "let TR = null, ENGINE = 'browser'; window.__MO_S = S;"),
+    ]
+    for pat, rep in reps:
+        new, n = re.subn(pat, rep, html, count=1, flags=re.S)
+        if n:
+            html = new
+            patched.append(pat[:20])
+    inject = ("<script>\n/* Added by Isomorph: extra Micro Opus models trained there. */\n"
+              f"Object.assign(window.MODELS, {json.dumps(extra, separators=(',', ':'))});\n"
+              "(function(){var s=document.getElementById('modelSel');if(!s)return;Object.keys(window.MODELS).forEach(function(k){"
+              "if(![].some.call(s.options,function(o){return o.value===k;})){var o=document.createElement('option');o.value=k;"
+              "o.textContent=k+' (from Isomorph)';s.appendChild(o);}});})();\n</script>\n")
+    anchor = html.find("<script>\n(() => {\nconst MODELS = window.MODELS")
+    if anchor >= 0 and len(patched) >= 2:
+        html = html[:anchor] + inject + html[anchor:]
+    send = ("<script>\n/* Added by Isomorph: send browser-trained weights back. */\n(function(){\n"
+            "var use=document.getElementById('trUse');if(!use||!window.__MO_TRN)return;\n"
+            "var b=document.createElement('button');b.className='btn';b.textContent='Send these weights to Isomorph';use.insertAdjacentElement('afterend',b);\n"
+            "b.onclick=function(){var S=window.__MO_S;var W=window.__MO_TRN.weights();\n"
+            "var label=prompt('Name for this copy in Isomorph (letters, digits, dashes):',S.model+'-browser');if(!label)return;\n"
+            "b.disabled=true;b.textContent='Sending…';\n"
+            "fetch('../api/microopus/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({base:S.model,label:label,weights:W})})"
+            ".then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.detail||r.status);return j;});})"
+            ".then(function(j){b.textContent='Sent: '+j.spec;setTimeout(function(){b.textContent='Send these weights to Isomorph';b.disabled=false;},3000);})"
+            ".catch(function(e){alert('Could not send: '+e.message);b.textContent='Send these weights to Isomorph';b.disabled=false;});};\n"
+            "})();\n</script>\n")
+    if "window.__MO_TRN = t;" in html:
+        i = html.rfind("</body>")
+        html = html[:i] + send + html[i:] if i >= 0 else html + send
+    return html, patched
+
+
+def import_weights(base, label, weights):
+    """Store weights trained in the Micro Opus page as a new model for Isomorph."""
+    if _data_dir is None:
+        raise RuntimeError("Data folder not set.")
+    if not re.fullmatch(r"[A-Za-z0-9\-]{1,40}", label or ""):
+        raise ValueError("Use letters, digits and dashes only (at most 40).")
+    b = weights_blob(PREFIX + base)
+    want = {k: np.array(v).shape for k, v in b["weights"].items()}
+    got = {k: np.array(v, dtype=float) for k, v in weights.items()}
+    if set(got) != set(want) or any(got[k].shape != want[k] for k in want):
+        raise ValueError("These weights do not match the base model's tensor names and shapes.")
+    if not all(np.isfinite(v).all() for v in got.values()):
+        raise ValueError("The weights contain non-finite numbers.")
+    out = dict(b)
+    out["weights"] = {k: np.round(v, 5).tolist() for k, v in got.items()}
+    out["source"] = f"trained in the Micro Opus page from {base}"
+    d = _data_dir / "microopus"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{label}.json").write_text(json.dumps(out, separators=(",", ":")))
+    return PREFIX + label
+
+
+# ------------------------------------------------------------------ play: model.py, line by line
+_SKIP = re.compile(r"^\s*(W, cfg =|ids = |T, H =|dh = |tr = |tr\.update|tr\[\"layers\"\]|P = lambda|xin = x|xmid = x|qh, kh, vh|for l in|return|#)")
+_ATTN_SUB = {"q": 0, "k": 0, "v": 0, "scores": 1, "att": 2, "mix": 3, "attn_out": 4}
+_MLP_SUB = {"up": 0, "act": 1, "down": 2}
+
+
+def play_steps(spec, text):
+    """Every line of MicroOpus.forward() that computes something, in execution
+    order (the layer loop unrolled), with the value it produced for every token,
+    as computed by the vendored model.py itself."""
+    m = _np(spec)
+    tok = Tokenizer(m.vocab, m.cfg.get("chars", False), m.cfg["T"])
+    ids = tok.encode(text)[: m.cfg["T"]]
+    tr = {}
+    m.forward(ids, tr)
+    src = (VENDOR / "model.py").read_text().splitlines()
+    a = next(i for i, l in enumerate(src) if re.match(r"\s*def forward\(", l))
+    b = next(i for i in range(a + 1, len(src)) if re.match(r"\s{4}(def |# -)", src[i]) or re.match(r"\s*@staticmethod", src[i]))
+    loop_a = next(i for i in range(a, b) if "for l in range" in src[i])
+    loop_b = next(i for i in range(loop_a, b) if 'tr["layers"].append' in src[i])
+    smap = {e["line"]: e for e in source_map(spec)["entries"]}
+    W = {k: np.asarray(v) for k, v in m.W.items()}
+    R = lambda v: np.round(np.asarray(v, dtype=float), 4).tolist()
+
+    def weights_at(line, layer):
+        e = smap.get(line + 1)
+        out = []
+        for w in (e["weights"] if e else []):
+            key = w["short"] if w["name"] == w["short"] else f"L{layer}.{w['short']}"
+            out.append({"name": key, "shape": list(W[key].shape), "values": R(W[key]) if W[key].size <= 4096 else None})
+        return out
+
+    steps = []
+
+    def add(i, var, value, layer, node, sub=None, kind="vec"):
+        steps.append({"line": i + 1, "code": src[i].strip(), "var": var, "layer": layer, "node": node, "sub": sub, "kind": kind,
+                      "value": value, "weights": weights_at(i, layer if layer is not None else 0)})
+
+    def assigned(i):
+        mm = re.match(r"^\s*([A-Za-z_]\w*)\s*=(?!=)", src[i])
+        return mm.group(1) if mm else None
+
+    for i in range(a + 1, loop_a):
+        v = assigned(i)
+        if not v or _SKIP.match(src[i]):
+            continue
+        if v in ("emb", "pos"):
+            add(i, v, R(tr[v]), None, "embed")
+        elif v == "x":
+            add(i, "x", R(tr["x0"]), None, "embed")
+    for l in range(m.cfg["L"]):
+        Ly = tr["layers"][l]
+        seen_x = 0
+        for i in range(loop_a + 1, loop_b):
+            v = assigned(i)
+            if not v or _SKIP.match(src[i]):
+                continue
+            if v == "x":
+                seen_x += 1
+                add(i, "x", R(Ly["xmid"] if seen_x == 1 else Ly["xout"]), l, "add")
+            elif v == "h1":
+                add(i, v, R(Ly["h1"]), l, "ln1")
+            elif v == "h2":
+                add(i, v, R(Ly["h2"]), l, "ln2")
+            elif v in _ATTN_SUB:
+                key = {"attn_out": "attnOut"}.get(v, v)
+                val = Ly[key]
+                kind = "heads" if v in ("scores", "att") else "vec"
+                if v == "scores":
+                    val = np.where(np.isfinite(val), val, np.nan)
+                add(i, v, [[[None if (isinstance(x, float) and x != x) else x for x in row] for row in h] for h in R(val)] if kind == "heads" else R(val),
+                    l, "attn", _ATTN_SUB[v], kind)
+            elif v in _MLP_SUB:
+                add(i, v, R(Ly[v]), l, "mlp", _MLP_SUB[v])
+    for i in range(loop_b + 1, b):
+        v = assigned(i)
+        if not v or _SKIP.match(src[i]):
+            continue
+        if v == "hf":
+            add(i, v, R(tr["hf"]), None, "fnorm")
+        elif v in ("logits", "probs"):
+            val = tr[v]
+            top = [[{"t": m.vocab[j], "v": round(float(row[j]), 4)} for j in np.argsort(-row)[:5]] for row in val]
+            add(i, v, top, None, "unembed" if v == "logits" else "softmax", kind="top")
+    return {"tokens": [m.vocab[i] for i in ids], "ids": ids, "vocab": m.vocab, "steps": steps, "file": "vendor/microopus/model.py",
+            "context": {s["line"]: s["code"] for s in steps}}

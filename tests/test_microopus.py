@@ -28,3 +28,18 @@ def test_microopus():
 
 if __name__ == "__main__":
     test_microopus()
+
+
+def test_surgery_and_page():
+    from server.trace.surgery import surgery_report
+    r = surgery_report("microopus:words", "the big dog ran to the", quick=[{"kind": "neuron", "layer": 0, "index": 5}, {"kind": "head", "layer": 0, "index": 0}])
+    assert r["restored_diff"] == 0 and r["weights_touched"] > 0
+    html, patched = mo.app_html()
+    assert len(patched) == 4 and "Send these weights to Isomorph" in html
+    p = mo.play_steps("microopus:words", "the big dog ran to the")
+    assert len(p["steps"]) > 20 and p["steps"][0]["weights"][0]["name"] == "W_E"
+    print("surgery/page/play ok", len(p["steps"]), "steps")
+
+
+if __name__ == "__main__":
+    test_surgery_and_page()

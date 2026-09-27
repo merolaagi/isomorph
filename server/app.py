@@ -9,7 +9,7 @@ from pathlib import Path
 
 import torch
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -415,6 +415,34 @@ def trace_anatomy(req: AnatomyReq):
     return {"job": jobs.submit("anatomy", f"Architecture of {req.spec}", work).id}
 
 
+class SurgeryReq(BaseModel):
+    spec: str
+    prompt: str = ""
+    edits: list[dict] = []
+    quick: list[dict] = []
+    info_only: bool = False
+
+
+@app.post("/api/trace/surgery")
+def trace_surgery(req: SurgeryReq):
+    from .hub.load import load_lm
+    from .trace.surgery import params_info, surgery_report
+
+    def work(update, stopped):
+        spec = catalog.resolve(req.spec, DATA, update)
+        update(0.2, f"Loading {req.spec}")
+        tok, model, _ = load_lm(spec)
+        info = params_info(model)
+        if req.info_only:
+            return {"info": info}
+        update(0.6, "Operating and measuring")
+        r = surgery_report(spec, req.prompt, req.edits, req.quick)
+        catalog.recent_add(DATA, req.spec)
+        return {"info": info, "report": r}
+
+    return {"job": jobs.submit("surgery", f"Surgery on {req.spec}", work).id}
+
+
 @app.get("/api/trace/history")
 def trace_history():
     out = []
@@ -595,6 +623,58 @@ def microopus_info():
     ver = (microopus.VENDOR / "VERSION").read_text().strip() if (microopus.VENDOR / "VERSION").exists() else "?"
     return {"version": ver, "models": microopus.available(),
             "check": {m: microopus.check_against_numpy(m) for m in ("microopus:words", "microopus:names")}}
+
+
+@app.get("/microopus/", response_class=HTMLResponse)
+@app.get("/microopus/index.html", response_class=HTMLResponse)
+def microopus_page():
+    html, _ = microopus.app_html()
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/microopus/api/health")
+def microopus_page_health():
+    # Tells the Micro Opus page that numbers can come from model.py on this server.
+    return {"engine": "model.py", "version": (microopus.VENDOR / "VERSION").read_text().strip(), "host": "isomorph"}
+
+
+class MOTraceReq(BaseModel):
+    ids: list[int]
+    model: str = "words"
+
+
+@app.post("/microopus/api/trace")
+def microopus_page_trace(req: MOTraceReq):
+    try:
+        b = microopus.weights_blob(microopus.PREFIX + req.model)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    if not 1 <= len(req.ids) <= b["config"]["T"] or any(not 0 <= i < len(b["vocab"]) for i in req.ids):
+        raise HTTPException(400, "Token ids out of range.")
+    return microopus.trace_json(req.model, req.ids)
+
+
+@app.get("/microopus/api/source/{name:path}", response_class=PlainTextResponse)
+def microopus_page_source(name: str):
+    if name not in ("model.py", "train.py"):
+        raise HTTPException(404, "Not available here.")
+    return (microopus.VENDOR / name).read_text()
+
+
+class MOImportReq(BaseModel):
+    base: str
+    label: str
+    weights: dict
+
+
+@app.post("/api/microopus/import")
+def microopus_import(req: MOImportReq):
+    try:
+        spec = microopus.import_weights(req.base, req.label, req.weights)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    catalog.recent_add(DATA, spec)
+    return {"spec": spec, "diff": microopus.check_against_numpy(spec)}
 
 
 class MicroTrainReq(BaseModel):

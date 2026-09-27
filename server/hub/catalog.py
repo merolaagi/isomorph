@@ -232,7 +232,7 @@ def info(spec, data: Path):
         except Exception as e:
             return {"spec": s, "kind": "microopus", "error": str(e)}
         n = sum(int(np.prod(np.array(v).shape)) for v in b["weights"].values())
-        return {"spec": s, "kind": "microopus", "arch": "Micro Opus (numpy transformer)", "params": n, "bytes": microopus.weights_path(s).stat().st_size,
+        return {"spec": s, "kind": "microopus", "arch": "Micro Opus (numpy transformer), stored locally", "params": n,
                 "traceable": True, "weights": True, "note": f"{len(b['vocab'])}-token vocabulary, reads up to {b['config']['T']} tokens"}
     if os.path.isdir(os.path.expanduser(s)):
         p = Path(os.path.expanduser(s))

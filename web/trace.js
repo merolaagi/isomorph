@@ -107,7 +107,7 @@
     return s;
   }
 
-  const TABS = [["flow", "Workflow"], ["arch", "Architecture"], ["attention", "Attention"], ["neurons", "Neurons"], ["learning", "If trained on this"], ["files", "Weight files"], ["weights", "Weight patterns"]];
+  const TABS = [["flow", "Workflow"], ["arch", "Architecture"], ["surgery", "Surgery"], ["attention", "Attention"], ["neurons", "Neurons"], ["learning", "If trained on this"], ["files", "Weight files"], ["weights", "Weight patterns"]];
   function renderTabs() {
     const bar = $("#tr-tabs");
     if (!bar) return;
@@ -125,7 +125,7 @@
     body.innerHTML = "";
     const needTrace = ["flow", "attention", "neurons", "learning"].includes(T.tab);
     if (needTrace && !hasTrace) { body.innerHTML = `<p class="muted">Trace a prompt to see this view.</p>`; return; }
-    ({ flow, arch, attention, neurons, learning, files, weights })[T.tab](body);
+    ({ flow, arch, surgery, attention, neurons, learning, files, weights })[T.tab](body);
   }
 
   function tokenChips(host, onPick) {
@@ -491,10 +491,25 @@
   const PARAMS = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : String(n));
   const sumW = (ws) => (ws || []).reduce((a, w) => a + w.params, 0);
 
+  function playSteps(r) {
+    const I = r.info;
+    if (I.play) return I.play.steps;
+    const block = r.nodes.find((n) => n.id === "block");
+    const out = [{ node: "tokens", layer: null }, { node: "embed", layer: null }];
+    for (let l = 0; l < I.layers; l++) {
+      const seq = block.parallel ? ["ln1", "attn", "ln2", "mlp", "add"] : ["ln1", "attn", "add", "ln2", "mlp", "add"];
+      seq.forEach((id) => out.push({ node: id, layer: l }));
+    }
+    if (r.nodes.find((n) => n.id === "fnorm")) out.push({ node: "fnorm", layer: null });
+    out.push({ node: "unembed", layer: null }, { node: "softmax", layer: null });
+    return out;
+  }
+
   function archView(host, r, side) {
     const I = r.info, imp = r.impact;
     const col = side === "a" ? "var(--a)" : "var(--b)";
-    const L = Math.min(T.anLayer, I.layers - 1);
+    const steps = playSteps(r);
+    T.pl = T.pl && T.pl.key === r.spec ? T.pl : { key: r.spec, i: null, timer: null, pos: I.play ? I.play.tokens.length - 1 : 0, speed: 1100 };
     host.innerHTML = "";
     let lede = `${I.microopus ? "Micro Opus" : esc(I.class)}: ${I.layers} blocks, ${I.d_model}-dimensional residual stream, ${I.heads} attention heads of ${I.d_head} dims, ${I.d_ff ? `${I.d_ff} MLP neurons per block` : "MLP"}, ${PARAMS(I.total_params)} parameters. `;
     lede += I.parallel_residual ? "Attention and MLP run side by side in each block and are added to the stream together. " : "Attention runs first, then the MLP, each adding to the stream in turn. ";
@@ -503,15 +518,30 @@
       const worst = imp.layers.flatMap((l) => [["attention", l.layer, l.attn_dloss], ["MLP", l.layer, l.mlp_dloss]]).filter((x) => x[2] !== undefined).sort((a, b) => b[2] - a[2])[0];
       if (worst) lede += `On your prompt, the single most important step is the <b>${worst[0]} of layer ${worst[1]}</b>: removing it raises the loss by ${fmt(worst[2], 3)}.`;
     }
-    if (I.microopus) lede += ` This is Micro Opus: every step below points at the exact lines of its numpy model.py, and the same forward pass is animated weight by weight in the <a href="/static/microopus.html" target="_blank" rel="noopener">Micro Opus app</a>.`;
+    if (I.microopus) lede += ` This is Micro Opus: press Play to run its model.py line by line, with the real numbers each line produces.`;
     host.insertAdjacentHTML("beforeend", `<p class="finding" style="font-size:18px">${lede}</p>`);
 
-    // where the parameters live
     const G = I.param_groups, tot = Object.values(G).reduce((a, b) => a + b, 0) || 1;
     const gcol = { embedding: "#2446c7", attention: "#6b3fb3", mlp: "#c23a6b", norms: "#1f8a70", unembedding: "#b7791f", other: "#5f6b7a" };
     host.insertAdjacentHTML("beforeend", `<div class="anatomy" title="Where the parameters live">${Object.entries(G).filter(([, v]) => v > 0).map(([k, v]) =>
       `<div style="flex:${v / tot};background:${gcol[k]}" title="${k}: ${PARAMS(v)}">${v / tot > 0.08 ? `${k} ${pct(v / tot)}` : ""}</div>`).join("")}</div>
       <p class="sub">Where the ${PARAMS(I.total_params)} parameters live: ${Object.entries(G).filter(([, v]) => v > 0).map(([k, v]) => `<span style="color:${gcol[k]}">■</span> ${k} ${PARAMS(v)}`).join(", ")}${I.tied_embeddings ? ". The output layer reuses the embedding table." : "."}</p>`);
+
+    // player
+    const bar = document.createElement("div");
+    bar.className = "player playbar";
+    bar.innerHTML = `<button class="ghost small" id="pl-prev" aria-label="Previous step">◀</button><button class="primary" id="pl-play">Play the forward pass</button><button class="ghost small" id="pl-next" aria-label="Next step">▶</button>
+      <input type="range" id="pl-range" min="0" max="${steps.length - 1}" value="${T.pl.i ?? 0}" aria-label="Step"><span class="muted" id="pl-lab"></span>
+      <select id="pl-speed" aria-label="Speed"><option value="1800">Slow</option><option value="1100" selected>Normal</option><option value="500">Fast</option></select>
+      <button class="ghost small" id="pl-stop">Exit</button>`;
+    host.appendChild(bar);
+    if (I.play) {
+      const chips = document.createElement("div");
+      chips.className = "tokens";
+      chips.innerHTML = `<span class="muted" style="align-self:center;margin-right:4px">Follow the token:</span>` + I.play.tokens.map((t, i) => `<button data-pos="${i}" aria-pressed="${i === T.pl.pos}">${esc(t)}</button>`).join("");
+      chips.querySelectorAll("[data-pos]").forEach((b) => (b.onclick = () => { T.pl.pos = +b.dataset.pos; chips.querySelectorAll("[data-pos]").forEach((x) => x.setAttribute("aria-pressed", x === b)); drawDetail(); }));
+      host.appendChild(chips);
+    }
 
     const wrap = document.createElement("div");
     wrap.className = "archwrap";
@@ -522,67 +552,158 @@
     detail.className = "detailcol";
     wrap.append(chart, detail);
 
-    const nodes = r.nodes;
-    const block = nodes.find((n) => n.id === "block");
+    const block = r.nodes.find((n) => n.id === "block");
     const byId = {};
-    for (const n of nodes) byId[n.id] = n;
+    for (const n of r.nodes) byId[n.id] = n;
     for (const c of block.children) byId[c.id] = c;
-    const row = imp ? imp.layers[L] : null;
 
-    const card = (n, extra = "") => {
-      const w = sumW(n.weights);
-      const badge = n.has_weights ? `<span class="wbadge">${w ? `${PARAMS(w)} weights` : "weights"}${n.kind === "attn" || n.kind === "mlp" || n.kind === "norm" ? " per block" : ""}</span>` : `<span class="nobadge">no weights</span>`;
-      return `<button class="fnode ${n.has_weights ? "hasw" : "now"} k-${n.kind} ${T.anNode === n.id ? "sel" : ""}" data-id="${n.id}" style="--c:${col}">
-        <span class="fl">${esc(n.label)}</span>${badge}${extra}</button>`;
-    };
-    const arrow = `<div class="farrow" aria-hidden="true"></div>`;
-    const imps = (kind) => {
-      if (!row || row[`${kind}_norm`] === undefined) return "";
-      const dl = row[`${kind}_dloss`];
-      return `<span class="fimp">output ${fmt(row[`${kind}_norm`], 1)} vs stream ${fmt(row.resid_in, 1)}; removing it: loss ${dl >= 0 ? "+" : ""}${fmt(dl, 3)}${row[`${kind}_flips`] ? ", changes the answer" : ""}</span>`;
-    };
-    let html = card(byId.tokens) + arrow + card(byId.embed) + arrow;
-    html += `<div class="fblock"><div class="fbhead"><button class="linkbtn" data-id="block">${esc(block.label)}</button>
-      <label class="fbl">Layer <input type="range" id="an-layer" min="0" max="${I.layers - 1}" value="${L}"> <b id="an-lab">${L}</b></label></div>
-      <div class="fstream">residual stream in: h<sup>${L}</sup></div>`;
-    if (block.parallel) {
-      html += `<div class="fpar"><div>${card(byId.ln1)}${arrow}${card(byId.attn, imps("attn"))}</div><div>${card(byId.ln2)}${arrow}${card(byId.mlp, imps("mlp"))}</div></div>${arrow}${card(byId.add)}`;
-    } else {
-      html += `${card(byId.ln1)}${arrow}${card(byId.attn, imps("attn"))}${arrow}${card(byId.add)}${arrow}${card(byId.ln2)}${arrow}${card(byId.mlp, imps("mlp"))}${arrow}${card(byId.add)}`;
-    }
-    html += `<div class="fstream">residual stream out: h<sup>${L + 1}</sup>, repeated for all ${I.layers} blocks</div></div>`;
-    html += arrow + (byId.fnorm ? card(byId.fnorm) + arrow : "") + card(byId.unembed) + arrow + card(byId.softmax, imp ? `<span class="fimp">predicts “${esc(tokLabel(imp.prediction))}” at ${pct(imp.prediction_p)}</span>` : "");
-    chart.innerHTML = html;
-    chart.querySelectorAll("[data-id]").forEach((b) => (b.onclick = () => { T.anNode = b.dataset.id; archView(host, r, side); }));
-    chart.querySelector("#an-layer").oninput = (e) => { T.anLayer = +e.target.value; archView(host, r, side); };
+    const cur = () => (T.pl.i === null ? null : steps[T.pl.i]);
+    const layerNow = () => { const st = cur(); if (st && st.layer !== null && st.layer !== undefined) T.anLayer = st.layer; return Math.min(T.anLayer, I.layers - 1); };
 
-    // detail panel
-    const n = byId[T.anNode] || byId.attn;
-    let dh = `<h3>${esc(n.label)}${n.id === "block" ? "" : ["ln1", "attn", "ln2", "mlp", "add"].includes(n.id) ? `, layer ${L}` : ""}</h3>`;
-    if (n.note) dh += `<p class="sub">${esc(n.note)}</p>`;
-    if (n.math && n.math.length) dh += `<div class="math">${n.math.map(esc).join("<br>")}</div>`;
-    if (n.steps) {
-      dh += `<ol class="steps">${n.steps.map((st) => `<li class="${st.has_weights ? "hasw" : "now"}" style="--c:${col}"><div class="sl">${esc(st.label)} ${st.has_weights ? `<span class="wbadge">${PARAMS(sumW(st.weights))} weights</span>` : `<span class="nobadge">no weights</span>`}</div>
-        <div class="math">${st.math.map(esc).join("<br>")}</div>${st.weights && st.weights.length ? `<div class="wlist">${st.weights.map((w) => `${esc(w.name)} <span class="muted">${w.shape.join(" × ")}</span>${w.alias ? ` <span class="alias">= ${esc(w.alias)}</span>` : ""}`).join("<br>")}</div>` : ""}</li>`).join("")}</ol>`;
+    function drawFlow() {
+      const L = layerNow(), st = cur();
+      const row = imp ? imp.layers[L] : null;
+      const card = (n, extra = "") => {
+        const w = sumW(n.weights);
+        const badge = n.has_weights ? `<span class="wbadge">${w ? `${PARAMS(w)} weights` : "weights"}${n.kind === "attn" || n.kind === "mlp" || n.kind === "norm" ? " per block" : ""}</span>` : `<span class="nobadge">no weights</span>`;
+        const playing = st && st.node === n.id;
+        return `<button class="fnode ${n.has_weights ? "hasw" : "now"} k-${n.kind} ${!st && T.anNode === n.id ? "sel" : ""} ${playing ? "playing" : ""}" data-id="${n.id}" style="--c:${col}">
+          <span class="fl">${esc(n.label)}</span>${badge}${extra}</button>`;
+      };
+      const arrow = `<div class="farrow" aria-hidden="true"></div>`;
+      const imps = (kind) => {
+        if (!row || row[`${kind}_norm`] === undefined) return "";
+        const dl = row[`${kind}_dloss`];
+        return `<span class="fimp">output ${fmt(row[`${kind}_norm`], 1)} vs stream ${fmt(row.resid_in, 1)}; removing it: loss ${dl >= 0 ? "+" : ""}${fmt(dl, 3)}${row[`${kind}_flips`] ? ", changes the answer" : ""}</span>`;
+      };
+      let html = card(byId.tokens) + arrow + card(byId.embed) + arrow;
+      html += `<div class="fblock ${st && st.layer !== null && st.layer !== undefined ? "live" : ""}"><div class="fbhead"><button class="linkbtn" data-id="block">${esc(block.label)}</button>
+        <label class="fbl">Layer <input type="range" id="an-layer" min="0" max="${I.layers - 1}" value="${L}"> <b>${L}</b></label></div>
+        <div class="fstream">residual stream in: h<sup>${L}</sup></div>`;
+      if (block.parallel) html += `<div class="fpar"><div>${card(byId.ln1)}${arrow}${card(byId.attn, imps("attn"))}</div><div>${card(byId.ln2)}${arrow}${card(byId.mlp, imps("mlp"))}</div></div>${arrow}${card(byId.add)}`;
+      else html += `${card(byId.ln1)}${arrow}${card(byId.attn, imps("attn"))}${arrow}${card(byId.add)}${arrow}${card(byId.ln2)}${arrow}${card(byId.mlp, imps("mlp"))}${arrow}${card(byId.add)}`;
+      html += `<div class="fstream">residual stream out: h<sup>${L + 1}</sup>, repeated for all ${I.layers} blocks</div></div>`;
+      html += arrow + (byId.fnorm ? card(byId.fnorm) + arrow : "") + card(byId.unembed) + arrow + card(byId.softmax, imp ? `<span class="fimp">predicts “${esc(tokLabel(imp.prediction))}” at ${pct(imp.prediction_p)}</span>` : "");
+      chart.innerHTML = html;
+      chart.querySelectorAll("[data-id]").forEach((b) => (b.onclick = () => { stopPlay(true); T.anNode = b.dataset.id; drawFlow(); drawDetail(); }));
+      chart.querySelector("#an-layer").oninput = (e) => { stopPlay(true); T.anLayer = +e.target.value; drawFlow(); drawDetail(); };
+      const p = chart.querySelector(".fnode.playing");
+      if (p) p.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     }
-    if (n.id === "block") dh += `<p class="sub">${PARAMS(n.params_per_block)} parameters per block, ${I.layers} blocks.</p>`;
-    if (row && (n.id === "attn" || n.id === "mlp")) {
-      const k = n.id;
-      dh += `<div class="kv" style="margin:12px 0"><div><div class="k">Output size, layer ${L}</div><div class="v" style="font-size:17px">${fmt(row[`${k}_norm`], 2)}</div></div>
-        <div><div class="k">Stream size going in</div><div class="v" style="font-size:17px">${fmt(row.resid_in, 2)}</div></div>
-        <div><div class="k">Loss change if removed</div><div class="v" style="font-size:17px">${row[`${k}_dloss`] >= 0 ? "+" : ""}${fmt(row[`${k}_dloss`], 3)}</div></div>
-        <div><div class="k">Change in the answer's probability</div><div class="v" style="font-size:17px">${row[`${k}_dprob`] >= 0 ? "+" : ""}${pct(row[`${k}_dprob`], 1)}</div></div></div>`;
-    }
-    if (n.weights && n.weights.length && !n.steps) {
-      dh += `<table style="margin-top:10px"><thead><tr><th>Weight tensor</th><th>Shape</th><th class="num">Parameters</th></tr></thead><tbody>${
-        n.weights.map((w) => `<tr><td>${esc(w.name)}${w.alias ? `<div class="alias">= ${esc(w.alias)}</div>` : ""}</td><td class="muted">${w.shape.join(" × ")}</td><td class="num">${w.params.toLocaleString()}</td></tr>`).join("")}</tbody></table>`;
-    }
-    if (n.code) dh += codeView(n.code);
-    detail.innerHTML = `<div class="panel">${dh}</div>`;
-    const cb = detail.querySelector(".codebox"), hit = cb && cb.querySelector(".cl.hit");
-    if (hit) cb.scrollTop = Math.max(0, hit.offsetTop - cb.offsetTop - 40);
 
-    // impact over depth
+    function nodePanel(n, L) {
+      const row = imp ? imp.layers[L] : null;
+      let dh = `<h3>${esc(n.label)}${n.id === "block" ? "" : ["ln1", "attn", "ln2", "mlp", "add"].includes(n.id) ? `, layer ${L}` : ""}</h3>`;
+      if (n.note) dh += `<p class="sub">${esc(n.note)}</p>`;
+      if (n.math && n.math.length) dh += `<div class="math">${n.math.map(esc).join("<br>")}</div>`;
+      if (n.steps) {
+        dh += `<ol class="steps">${n.steps.map((st) => `<li class="${st.has_weights ? "hasw" : "now"}" style="--c:${col}"><div class="sl">${esc(st.label)} ${st.has_weights ? `<span class="wbadge">${PARAMS(sumW(st.weights))} weights</span>` : `<span class="nobadge">no weights</span>`}</div>
+          <div class="math">${st.math.map(esc).join("<br>")}</div>${st.weights && st.weights.length ? `<div class="wlist">${st.weights.map((w) => `${esc(w.name)} <span class="muted">${w.shape.join(" × ")}</span>${w.alias ? ` <span class="alias">= ${esc(w.alias)}</span>` : ""}`).join("<br>")}</div>` : ""}</li>`).join("")}</ol>`;
+      }
+      if (n.id === "block") dh += `<p class="sub">${PARAMS(n.params_per_block)} parameters per block, ${I.layers} blocks.</p>`;
+      if (row && (n.id === "attn" || n.id === "mlp")) {
+        const k = n.id;
+        dh += `<div class="kv" style="margin:12px 0"><div><div class="k">Output size, layer ${L}</div><div class="v" style="font-size:17px">${fmt(row[`${k}_norm`], 2)}</div></div>
+          <div><div class="k">Stream size going in</div><div class="v" style="font-size:17px">${fmt(row.resid_in, 2)}</div></div>
+          <div><div class="k">Loss change if removed</div><div class="v" style="font-size:17px">${row[`${k}_dloss`] >= 0 ? "+" : ""}${fmt(row[`${k}_dloss`], 3)}</div></div>
+          <div><div class="k">Change in the answer's probability</div><div class="v" style="font-size:17px">${row[`${k}_dprob`] >= 0 ? "+" : ""}${pct(row[`${k}_dprob`], 1)}</div></div></div>`;
+      }
+      if (n.weights && n.weights.length && !n.steps) {
+        dh += `<table style="margin-top:10px"><thead><tr><th>Weight tensor</th><th>Shape</th><th class="num">Parameters</th></tr></thead><tbody>${
+          n.weights.map((w) => `<tr><td>${esc(w.name)}${w.alias ? `<div class="alias">= ${esc(w.alias)}</div>` : ""}</td><td class="muted">${w.shape.join(" × ")}</td><td class="num">${w.params.toLocaleString()}</td></tr>`).join("")}</tbody></table>`;
+      }
+      if (n.code) dh += codeView(n.code);
+      return dh;
+    }
+
+    function microStepPanel(st, k) {
+      const pos = Math.min(T.pl.pos, I.play.tokens.length - 1);
+      const toks = I.play.tokens;
+      const lines = I.model_code.code.split("\n");
+      const lo = Math.max(0, st.line - 4), hi = Math.min(lines.length, st.line + 3);
+      const ctx = { file: I.model_code.file, cls: "MicroOpus", line: lo + 1, code: lines.slice(lo, hi).join("\n") + "\n",
+        entries: [{ idx: st.line - 1 - lo, weights: st.weights.map((w) => ({ name: w.name, shapes: [`${w.name} ${w.shape.join("×")}`] })), none: !st.weights.length }] };
+      let h = `<h3>Line ${st.line} of model.py${st.layer !== null && st.layer !== undefined ? `, layer ${st.layer}` : ""}</h3>
+        <p class="sub">Step ${k + 1} of ${steps.length}. ${st.weights.length ? `Weights enter here: <b>${st.weights.map((w) => esc(w.name)).join(", ")}</b>.` : "No weights are read on this line: it only combines values computed earlier."} The numbers below come from running model.py itself on your input.</p>`;
+      h += `<div class="codebox play">${ctx.code.replace(/\n$/, "").split("\n").map((l, i) => `<div class="cl ${i === ctx.entries[0].idx ? (st.weights.length ? "hit active" : "hit none active") : ""}"><span class="ln">${lo + 1 + i}</span><code>${esc(l) || " "}</code></div>`).join("")}</div>`;
+      h += `<div class="pl-value"></div><div class="pl-weights"></div>`;
+      detail.innerHTML = `<div class="panel">${h}</div>`;
+      const vbox = detail.querySelector(".pl-value"), wbox = detail.querySelector(".pl-weights");
+      const tokName = esc(toks[pos]);
+      if (st.kind === "vec") {
+        const v = st.value[pos];
+        vbox.insertAdjacentHTML("beforeend", `<p class="sub" style="margin:12px 0 2px"><b>${esc(st.var)}</b> for the token “${tokName}”: ${v.length} numbers</p>`);
+        const c = document.createElement("div");
+        vbox.appendChild(c);
+        groupedBars(c, { labels: v.map((_, i) => String(i)), series: [{ name: "", color: col === "var(--a)" ? css("--a") : css("--b"), values: v }], legend: false, height: 150 });
+      } else if (st.kind === "heads") {
+        const m = st.value.map((h) => h[pos].map((x) => (x === null ? 0 : x)));
+        vbox.insertAdjacentHTML("beforeend", `<p class="sub" style="margin:12px 0 2px"><b>${esc(st.var)}</b>: how much the token “${tokName}” ${st.var === "att" ? "attends to" : "scores"} each earlier token, per head${st.var === "scores" ? " (later tokens are masked out)" : ""}</p>`);
+        const c = document.createElement("div");
+        vbox.appendChild(c);
+        heatmap(c, { matrix: m.map((r) => r.slice(0, pos + 1)), rows: m.map((_, i) => `head ${i}`), cols: toks.slice(0, pos + 1), values: true, min: st.var === "att" ? 0 : Math.min(...m.flat()), max: st.var === "att" ? 1 : Math.max(...m.flat()), rowLabelWidth: 60, colLabelHeight: 50, color: css("--ab") });
+      } else if (st.kind === "top") {
+        const tp = st.value[pos];
+        const mx = Math.max(...tp.map((x) => Math.abs(x.v)));
+        vbox.insertAdjacentHTML("beforeend", `<p class="sub" style="margin:12px 0 4px"><b>${esc(st.var)}</b> after “${tokName}”: the five highest</p>` + tp.map((x) => `<div class="guess"><span class="w">${esc(x.t)}</span><div class="bar"><i style="width:${(Math.abs(x.v) / mx) * 100}%;background:var(--ab)"></i></div><span class="p">${st.var === "probs" ? pct(x.v, 1) : fmt(x.v, 2)}</span></div>`).join(""));
+      }
+      for (const w of st.weights) {
+        if (!w.values) continue;
+        const d = document.createElement("div");
+        const isEmb = w.name === "W_E" || w.name === "W_P";
+        const rowIdx = w.name === "W_E" ? I.play.ids[pos] : w.name === "W_P" ? pos : null;
+        d.innerHTML = `<p class="sub" style="margin:14px 0 2px"><b>${esc(w.name)}</b>, ${w.shape.join(" × ")}${isEmb ? `: the row read for “${tokName}” is marked ▶` : w.shape.length === 1 ? ": one scale per dimension" : ": the matrix every token is multiplied by"}</p>`;
+        const c = document.createElement("div");
+        d.appendChild(c);
+        wbox.appendChild(d);
+        if (w.shape.length === 1) groupedBars(c, { labels: w.values.map((_, i) => String(i)), series: [{ name: "", color: "#1f8a70", values: w.values }], legend: false, height: 120 });
+        else {
+          const rows = w.values.map((_, i) => (i === rowIdx ? "▶ " : "") + (w.name === "W_E" ? (r.info.play.vocab ? r.info.play.vocab[i] : String(i)) : String(i)));
+          const mx = Math.max(...w.values.flat().map(Math.abs));
+          heatmap(c, { matrix: w.values, rows, cols: w.values[0].map((_, j) => String(j)), min: -mx, max: mx, rowLabelWidth: 54, colLabelHeight: 28, cell: Math.max(6, Math.min(14, Math.floor(420 / w.values[0].length))), color: css("--ab") });
+        }
+      }
+    }
+
+    function drawDetail() {
+      const st = cur();
+      $("#pl-lab").textContent = st ? `Step ${T.pl.i + 1} of ${steps.length}` : `${steps.length} steps`;
+      $("#pl-range").value = T.pl.i ?? 0;
+      $("#pl-play").textContent = T.pl.timer ? "Pause" : st ? "Continue" : "Play the forward pass";
+      $("#pl-stop").hidden = !st;
+      if (st && I.play) return microStepPanel(st, T.pl.i);
+      const L = layerNow();
+      const n = st ? byId[st.node] : byId[T.anNode] || byId.attn;
+      let dh = nodePanel(n, L);
+      if (st) dh = `<p class="sub playnote">Step ${T.pl.i + 1} of ${steps.length}: ${esc(n.label)}${st.layer !== null ? `, layer ${st.layer}` : ""}</p>` + dh;
+      detail.innerHTML = `<div class="panel">${dh}</div>`;
+      const cb = detail.querySelector(".codebox"), hit = cb && cb.querySelector(".cl.hit");
+      if (hit) cb.scrollTop = Math.max(0, hit.offsetTop - cb.offsetTop - 40);
+    }
+
+    function go(i) { T.pl.i = Math.max(0, Math.min(steps.length - 1, i)); drawFlow(); drawDetail(); }
+    function stopPlay(exit) { if (T.pl.timer) clearInterval(T.pl.timer); T.pl.timer = null; if (exit) T.pl.i = null; }
+    function play() {
+      if (T.pl.timer) { stopPlay(false); drawDetail(); return; }
+      if (T.pl.i === null || T.pl.i >= steps.length - 1) go(0);
+      T.pl.timer = setInterval(() => {
+        if (T.tab !== "arch" || !document.body.contains(chart)) return stopPlay(false);
+        if (T.pl.i >= steps.length - 1) { stopPlay(false); drawDetail(); return; }
+        go(T.pl.i + 1);
+      }, T.pl.speed);
+      drawDetail();
+    }
+    $("#pl-play").onclick = play;
+    $("#pl-prev").onclick = () => { stopPlay(false); go((T.pl.i ?? 1) - 1); };
+    $("#pl-next").onclick = () => { stopPlay(false); go((T.pl.i ?? -1) + 1); };
+    $("#pl-range").oninput = (e) => { stopPlay(false); go(+e.target.value); };
+    $("#pl-speed").value = String(T.pl.speed);
+    $("#pl-speed").onchange = (e) => { T.pl.speed = +e.target.value; if (T.pl.timer) { stopPlay(false); play(); } };
+    $("#pl-stop").onclick = () => { stopPlay(true); drawFlow(); drawDetail(); };
+
+    drawFlow();
+    drawDetail();
+
     if (imp) {
       const [pp, pb] = panel("How much each layer matters on this prompt",
         `Loss change when one step's output is removed (higher means the model relied on it). Baseline loss ${fmt(imp.loss, 3)} over ${imp.tokens} tokens.`);
@@ -600,6 +721,112 @@
         { name: "MLP output", color: "#c23a6b", points: imp.layers.map((l) => [l.layer, l.mlp_norm]).filter((p) => p[1] !== undefined), dots: true }], xLabel: "Layer", yMin: 0 });
     }
     if (I.model_code) host.insertAdjacentHTML("beforeend", `<details class="panel" style="margin-top:18px"><summary>${I.microopus ? "The whole model.py" : `Top-level model code: ${esc(I.model_code.cls)}.forward`} (${esc(I.model_code.file)})</summary>${codeView(I.model_code)}</details>`);
+  }
+
+  // ---------------------------------------------------------------- surgery
+  function surgery(body) {
+    const d = T.data;
+    T.surg = T.surg && T.surg.key === d.a + "|" + d.b ? T.surg : { key: d.a + "|" + d.b, side: "a", info: {}, edits: [], result: null };
+    const S_ = T.surg, side = S_.side, spec = side === "a" ? d.a : d.b;
+    const bar = document.createElement("div");
+    bar.className = "player";
+    bar.innerHTML = `<span class="muted">Operate on</span>
+      <button class="ghost small" data-s="a" aria-pressed="${side === "a"}"><span class="headA">A</span> ${esc(d.a.split("/").pop())}</button>
+      <button class="ghost small" data-s="b" aria-pressed="${side === "b"}"><span class="headB">B</span> ${esc(d.b.split("/").pop())}</button>`;
+    bar.querySelectorAll("button").forEach((b) => (b.onclick = () => { S_.side = b.dataset.s; S_.edits = []; S_.result = null; renderTabs(); }));
+    body.appendChild(bar);
+    body.insertAdjacentHTML("beforeend", `<p class="sub">Damage chosen weights, rerun the prompt, and compare. The weights are restored right after each measurement, so nothing stays broken.</p>`);
+    const host = document.createElement("div");
+    body.appendChild(host);
+    const info = S_.info[side];
+    if (!info) {
+      host.innerHTML = `<p class="spinner">Loading ${esc(spec)}…</p>`;
+      runJob("/api/trace/surgery", { spec, info_only: true }, (r) => { S_.info[side] = r.info; if (T.tab === "surgery") renderTabs(); });
+      return;
+    }
+    const L = info.layers || 1, H = info.heads || 1;
+    const opts = (n) => Array.from({ length: n }, (_, i) => `<option value="${i}">${i}</option>`).join("");
+    const tensorOpts = info.params.map((p) => `<option value="${esc(p.name)}">${esc(p.alias ? `${p.alias}  (${p.name})` : p.name)}  ${p.shape.join("×")}</option>`).join("");
+    const [fp, fb] = panel("Choose what to damage", "Add one or more edits, then operate. Quick edits use the model's own layout: a head is its slice of the attention output projection, a neuron is its column feeding the MLP down projection.");
+    fb.innerHTML = `<div class="surg">
+      <div class="sg"><b>Remove an attention head</b><label>Layer<select id="sg-hl">${opts(L)}</select></label><label>Head<select id="sg-hh">${opts(H)}</select></label><button class="ghost small" id="sg-head">Add</button></div>
+      <div class="sg"><b>Silence an MLP neuron</b><label>Layer<select id="sg-nl">${opts(L)}</select></label><label>Neuron<input id="sg-nn" type="number" value="0" min="0" max="${(info.d_mlp || 1) - 1}"></label><button class="ghost small" id="sg-neuron">Add</button></div>
+      <div class="sg"><b>Erase a token's embedding</b><label>Token<input id="sg-tok" placeholder="dog"></label><button class="ghost small" id="sg-token">Add</button></div>
+      <div class="sg wide"><b>Edit a tensor directly</b><label>Tensor<select id="sg-t">${tensorOpts}</select></label>
+        <label>Part<select id="sg-target"><option value="all">All of it</option><option value="row">Rows</option><option value="col">Columns</option></select></label>
+        <label>Index (e.g. 3 or 0-7)<input id="sg-idx" value="0"></label>
+        <label>Operation<select id="sg-op"><option value="noise">Add noise</option><option value="zero">Set to zero</option><option value="scale">Scale</option><option value="negate">Flip sign</option></select></label>
+        <label>Amount<input id="sg-amt" type="number" value="1" step="0.1"></label><button class="ghost small" id="sg-tensor">Add</button></div>
+    </div>
+    <div class="tokens" id="sg-list" style="margin-top:12px"></div>
+    <div class="pk-row"><button class="primary" id="sg-go">Operate and compare</button><button class="ghost" id="sg-clear">Clear edits</button></div>`;
+    host.appendChild(fp);
+    const list = () => {
+      const el = $("#sg-list");
+      el.innerHTML = S_.edits.length ? "" : `<span class="muted">No edits yet.</span>`;
+      S_.edits.forEach((e, i) => {
+        const b = document.createElement("button");
+        b.textContent = e.label + "  ×";
+        b.title = "Remove this edit";
+        b.onclick = () => { S_.edits.splice(i, 1); list(); };
+        el.appendChild(b);
+      });
+    };
+    list();
+    const push = (e) => { S_.edits.push(e); list(); };
+    $("#sg-head").onclick = () => push({ quick: { kind: "head", layer: +$("#sg-hl").value, index: +$("#sg-hh").value }, label: `head ${$("#sg-hh").value} of layer ${$("#sg-hl").value}` });
+    $("#sg-neuron").onclick = () => push({ quick: { kind: "neuron", layer: +$("#sg-nl").value, index: +$("#sg-nn").value }, label: `neuron ${$("#sg-nn").value} of layer ${$("#sg-nl").value}` });
+    $("#sg-token").onclick = () => { const t = $("#sg-tok").value.trim(); if (t) push({ quick: { kind: "token", token: t }, label: `embedding of “${t}”` }); };
+    $("#sg-tensor").onclick = () => {
+      const target = $("#sg-target").value, raw = $("#sg-idx").value.trim();
+      const m = raw.match(/^(\d+)(?:\s*-\s*(\d+))?$/);
+      if (target !== "all" && !m) return toast("Index must be a number or a range like 0-7.", true);
+      const index = target === "all" ? 0 : m[2] ? [+m[1], +m[2]] : +m[1];
+      const op = $("#sg-op").value, amount = parseFloat($("#sg-amt").value) || 1;
+      const t = $("#sg-t").value, p = info.params.find((x) => x.name === t);
+      push({ edit: { tensor: t, target, index, op, amount, seed: 1 }, label: `${{ noise: "noise ×" + amount, zero: "zero", scale: "scale ×" + amount, negate: "flip" }[op]} ${target === "all" ? "" : target + " " + raw + " of "}${p.alias || t}` });
+    };
+    $("#sg-clear").onclick = () => { S_.edits = []; S_.result = null; renderTabs(); };
+    $("#sg-go").onclick = () => {
+      if (!S_.edits.length) return toast("Add at least one edit.", true);
+      const prompt = d.prompt || $("#tr-prompt").value.trim();
+      runJob("/api/trace/surgery", { spec, prompt, edits: S_.edits.filter((e) => e.edit).map((e) => e.edit), quick: S_.edits.filter((e) => e.quick).map((e) => e.quick) },
+        (r) => { S_.result = r.report; if (T.tab === "surgery") renderTabs(); });
+    };
+    if (S_.result) surgeryResult(host, S_.result, side);
+  }
+
+  function surgeryResult(host, r, side) {
+    const col = side === "a" ? css("--a") : css("--b");
+    const share = r.weights_touched / r.weights_total;
+    let f = `Changing ${r.weights_touched.toLocaleString()} of ${r.weights_total.toLocaleString()} weights (${share < 0.001 ? "<0.1%" : pct(share, 1)}) `;
+    f += r.flipped ? `<b class="cb">changed the answer</b> from “${esc(tokLabel(r.prediction))}” to “${esc(tokLabel(r.after.top[0].t))}”. ` : `left the answer at “${esc(tokLabel(r.prediction))}”. `;
+    f += `Its probability went from ${pct(r.p_orig_before, 1)} to <b>${pct(r.p_orig_after, 1)}</b>`;
+    if (r.before.loss !== null) f += `, and the loss on the whole prompt from ${fmt(r.before.loss, 3)} to ${fmt(r.after.loss, 3)}`;
+    f += `. KL divergence of the next-token distribution: ${fmt(r.kl, 3)}.`;
+    host.insertAdjacentHTML("beforeend", `<p class="finding" style="font-size:18px;margin-top:20px">${f}</p><p class="sub">Edits: ${r.labels.map(esc).join("; ")}. Weights restored afterwards (largest leftover difference ${r.restored_diff.toExponential(1)}).</p>`);
+    const two = document.createElement("div");
+    two.className = "two";
+    const bars = (t, c) => t.map((x) => `<div class="guess"><span class="w">${esc(tokLabel(x.t))}</span><div class="bar"><i style="width:${x.p * 100}%;background:${c}"></i></div><span class="p">${pct(x.p, 1)}</span></div>`).join("");
+    const [p1, b1] = panel("Before");
+    b1.innerHTML = bars(r.before.top, col);
+    const [p2, b2] = panel("After the surgery");
+    b2.innerHTML = bars(r.after.top, css("--b"));
+    two.append(p1, p2);
+    host.appendChild(two);
+    const row = document.createElement("div");
+    row.className = "cols";
+    row.style.marginTop = "18px";
+    const [p3, b3] = panel("Where the damage spreads", "Relative change of each layer's internal state, averaged over the prompt's tokens. Before the first edited layer it is zero; after it, the damage travels and may grow or fade.");
+    const [p4, b4] = panel("What each layer would predict", "Top guess for the next token read from every layer, before and after.");
+    row.append(p3, p4);
+    host.appendChild(row);
+    lineChart(b3, { series: [{ name: "Relative change", color: css("--b"), points: r.layer_change.map((v, i) => [i, v]), dots: true }], xLabel: "Layer (0 = embeddings)", yMin: 0 });
+    b4.className = "scroll";
+    b4.innerHTML = `<table><thead><tr><th>Layer</th><th>Before</th><th>After</th></tr></thead><tbody>${r.before.lens.map((x, i) => {
+      const y = r.after.lens[i];
+      return `<tr><td>${i === 0 ? "Embedding" : i}</td><td>${esc(tokLabel(x.t))} <span class="muted">${pct(x.p)}</span></td><td ${y.t !== x.t ? 'style="color:var(--b);font-weight:600"' : ""}>${esc(tokLabel(y.t))} <span class="muted">${pct(y.p)}</span></td></tr>`;
+    }).join("")}</tbody></table>`;
   }
 
   // ---------------------------------------------------------------- Micro Opus controls

@@ -398,6 +398,7 @@ def anatomy_report(spec, prompt=None, progress=lambda f, m: None, loader=load_lm
     if microopus.is_spec(spec):
         _micro_annotate(spec, model, nodes)
         info["microopus"] = True
+        info["play"] = microopus.play_steps(spec, prompt or ("the big dog ran to the" if not model.mo_cfg.get("chars") else "emm"))
         info["model_code"] = {"file": "vendor/microopus/model.py", "line": 1, "cls": "MicroOpus", "code": (microopus.VENDOR / "model.py").read_text(), "entries": []}
     impact = None
     if prompt and prompt.strip() and causal:
