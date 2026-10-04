@@ -336,3 +336,12 @@ a.navlink:hover { color: var(--ink); }
 .surg .sg label { min-width: 80px; }
 .surg .sg select, .surg .sg input { max-width: 100%; }
 #sg-t { max-width: 360px; }
+
+/* laws */
+.lawtab td.ok { color: var(--ab); font-weight: 600; } .lawtab td.no { color: var(--muted); }
+.lawtab td:first-child { min-width: 230px; }
+td.ok { color: var(--ab); font-weight: 600; } td.no { color: var(--muted); }
+h3.lw-g { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 2px; }
+#lw-cands label.check { margin: 3px 0; font-size: 12.5px; align-items: flex-start; }
+.lw-l { overflow-wrap: anywhere; }
+.lawtab button.link { text-align: left; }

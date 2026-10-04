@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from . import nano
-from .rules import mine_lab, mine_library, rid
+from .rules import mine_lab, mine_laws, mine_library, rid
 
 LEVERS = {
     "share": "Reuse one set of block weights across several layers",
@@ -73,7 +73,7 @@ def _lever_rules(L):
 def mine(engine_dir: Path, atlas_dir: Path, lab_dir: Path):
     L = load(engine_dir)
     lib_rules, metas = mine_library(atlas_dir)
-    rules = lib_rules + mine_lab(lab_dir)
+    rules = lib_rules + mine_lab(lab_dir) + mine_laws(engine_dir.parent / "laws")
     old = L["rules"]
     new = {}
     for r in rules:

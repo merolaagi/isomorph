@@ -237,3 +237,30 @@ def mine_lab(lab_dir: Path):
                            never, [x["run"] for x in sh if x["reached"] > 0], 1.0 if never else 0.0, sh,
                            about="Control condition of the seeding experiment."))
     return rules
+
+
+def mine_laws(laws_dir: Path):
+    """Rules from the physics and maths laws battery."""
+    from ..laws import LAWS, summary
+
+    if not laws_dir.exists():
+        return []
+    S = summary(laws_dir)
+    rules = []
+    for law, meta in LAWS.items():
+        rows = [m for m in S["models"] if law in m["verdicts"]]
+        if len(rows) < MIN_MODELS:
+            continue
+        have = [m["spec"] for m in rows if m["verdicts"][law]["holds"]]
+        lack = [m["spec"] for m in rows if not m["verdicts"][law]["holds"]]
+        ev = [{"model": m["spec"], "value": m["verdicts"][law]["value"], "null": m["verdicts"][law].get("null"), "holds": m["verdicts"][law]["holds"]} for m in rows]
+        vals = [e["value"] for e in ev if e["value"] is not None]
+        eff = float(np.median(vals)) if vals else None
+        lever = {"lever": "rank", "frac": 0.25} if law == "spikes" else None
+        if len(have) >= 0.75 * len(rows):
+            stmt = f"{meta['label']} holds in {'every' if not lack else 'almost every'} model tested ({len(have)} of {len(rows)})"
+            rules.append(_rule("law", stmt, have, lack, eff, ev, lever, about=f"{meta['field']}, {meta['kind']} law. {meta['expect']}", unit=meta["formula"]))
+        elif not have:
+            rules.append(_rule("absence", f"{meta['label']} holds in none of the {len(rows)} models tested", lack, [], eff, ev,
+                               about=f"{meta['field']}. {meta['expect']}"))
+    return rules

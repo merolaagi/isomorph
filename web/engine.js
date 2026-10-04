@@ -5,7 +5,7 @@
   const STATUS = { holds: ["holds", "var(--ab)"], rejected: ["rejected", "var(--b)"], mixed: ["mixed", "var(--warn)"], inconclusive: ["inconclusive", "var(--warn)"],
     observed: ["observed, untested", "var(--muted)"], "needs more data": ["needs more data", "var(--muted)"] };
   const KIND = { invariant: "Invariant", "near-invariant": "Near-invariant", absence: "Absence", ordering: "Ordering", location: "Location",
-    redundancy: "Redundancy", sparsity: "Sparsity", "low-rank": "Low rank", convergence: "Convergence", scaling: "Scaling", lab: "Lab result", lever: "Lever" };
+    redundancy: "Redundancy", sparsity: "Sparsity", "low-rank": "Low rank", convergence: "Convergence", scaling: "Scaling", lab: "Lab result", lever: "Lever", law: "Physics / maths law" };
   const LEVER_OF_KIND = { redundancy: "share", sparsity: "topk", "low-rank": "rank", lab: "seed" };
   const badge = (st) => { const [t, c] = STATUS[st] || [st, "var(--muted)"]; return `<span class="badge" style="--c:${c}">${esc(t)}</span>`; };
   const num = (n) => (n === null || n === undefined ? "–" : n >= 1e12 ? `${(n / 1e12).toFixed(1)}T` : n >= 1e9 ? `${(n / 1e9).toFixed(1)}G` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(Math.round(n)));

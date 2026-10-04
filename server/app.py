@@ -24,7 +24,8 @@ HUB = DATA / "hub"
 TRACE = DATA / "trace"
 ATLAS = DATA / "atlas"
 ENGINE = DATA / "engine"
-for d in (LAB, HUB, TRACE, ATLAS, ENGINE):
+LAWS_DIR = DATA / "laws"
+for d in (LAB, HUB, TRACE, ATLAS, ENGINE, LAWS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 VERSION = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else "dev"
 
@@ -615,6 +616,92 @@ def anthropic_key(req: KeyReq):
 
     set_key(DATA / "settings.json", req.key)
     return {"has_key": bool(get_key(DATA / "settings.json"))}
+
+
+# ------------------------------------------------------------------ laws
+@app.get("/api/laws")
+def laws_summary():
+    from .laws import summary
+
+    return clean(summary(LAWS_DIR))
+
+
+@app.get("/api/laws/candidates")
+def laws_candidates():
+    from .atlas.library import list_profiles
+
+    out = [{"spec": s_, "group": "Micro Opus", "label": s_} for s_ in microopus.available()]
+    for d in sorted(LAB.iterdir(), reverse=True):
+        if (d / "config.json").exists():
+            cfg = json.loads((d / "config.json").read_text())
+            for f in sorted(d.glob("seed_*.pt"), key=lambda f: int(f.stem.split("_")[1])):
+                out.append({"spec": f"lab:{d.name}:{f.stem.split('_')[1]}", "group": "Ground-truth lab",
+                            "label": f"(a + b) mod {cfg['p']}, seed {f.stem.split('_')[1]} ({d.name[:8]})"})
+    seen = {o["spec"] for o in out}
+    for m in list_profiles(ATLAS):
+        if m["spec"] not in seen:
+            out.append({"spec": m["spec"], "group": "Pattern library", "label": m["spec"]})
+            seen.add(m["spec"])
+    for it in catalog.saved_list(DATA) + catalog.recent_list(DATA):
+        if it["spec"] not in seen:
+            out.append({"spec": it["spec"], "group": "My and recent models", "label": it["spec"]})
+            seen.add(it["spec"])
+    done = {json.loads(f.read_text()).get("spec") for f in LAWS_DIR.glob("*.json")}
+    for o in out:
+        o["tested"] = o["spec"] in done
+    return out
+
+
+class LawsReq(BaseModel):
+    specs: list[str]
+
+
+@app.post("/api/laws/run")
+def laws_run(req: LawsReq):
+    from .laws import law_id, run_battery
+
+    specs = [s_.strip() for s_ in req.specs if s_.strip()][:40]
+    if not specs:
+        raise HTTPException(400, "Choose at least one model.")
+
+    def work(update, stopped):
+        done, failed = [], []
+        for i, spec in enumerate(specs):
+            if stopped():
+                raise InterruptedError("Stopped.")
+            pr = lambda f, m, i=i: update((i + f) / len(specs), f"{spec}: {m}")
+            try:
+                resolved = spec if spec.startswith("lab:") else catalog.resolve(spec, DATA, pr)
+                b = run_battery(spec, resolved, LAB, pr)
+                _write(LAWS_DIR / f"{law_id(spec)}.json", b)
+                done.append(spec)
+                if not spec.startswith("lab:"):
+                    catalog.recent_add(DATA, spec)
+            except Exception as e:
+                failed.append({"spec": spec, "error": f"{type(e).__name__}: {e}"})
+        return {"done": done, "failed": failed}
+
+    return {"job": jobs.submit("laws", f"Test the laws on {len(specs)} model{'s' if len(specs) > 1 else ''}", work).id}
+
+
+@app.get("/api/laws/model/{lid}")
+def laws_model(lid: str):
+    from .laws import verdicts
+
+    f = LAWS_DIR / f"{_safe_id(lid)}.json"
+    if not f.exists():
+        raise HTTPException(404, "No such result.")
+    b = _read(f)
+    b["verdicts"] = verdicts(b)
+    return clean(b)
+
+
+@app.delete("/api/laws/model/{lid}")
+def laws_delete(lid: str):
+    f = LAWS_DIR / f"{_safe_id(lid)}.json"
+    if f.exists():
+        f.unlink()
+    return {"deleted": lid}
 
 
 # ------------------------------------------------------------------ Micro Opus

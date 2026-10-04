@@ -19,6 +19,7 @@
   <nav role="tablist">
     <button role="tab" data-view="trace" aria-selected="true">Side by side</button>
     <button role="tab" data-view="atlas" aria-selected="false">Pattern library</button>
+    <button role="tab" data-view="laws" aria-selected="false">Laws</button>
     <button role="tab" data-view="engine" aria-selected="false">Engine</button>
     <button role="tab" data-view="lab" aria-selected="false">Ground-truth lab</button>
     <button role="tab" data-view="hub" aria-selected="false">Model statistics</button>
@@ -98,6 +99,19 @@
         <p>With a few models profiled, the library shows which patterns are shared, which are rare, and how close each model is to the consensus at every depth. Add the model you are curious about last: its page will say what it shares with the rest and what it lacks.</p>
       </div>
     </div>
+  </section>
+
+  <!-- LAWS -->
+  <section class="view" id="view-laws" hidden>
+    <aside class="rail">
+      <h2>Test laws on any model</h2>
+      <p class="hint">Random-matrix theory, symmetry and conservation, scaling, and digit statistics, applied to raw weights. Works on Hugging Face models, local folders, Micro Opus and the lab's tiny transformers.</p>
+      <div id="lw-cands"><p class="hint">Loading…</p></div>
+      <label style="margin-top:10px">More models, one per line<textarea id="lw-extra" rows="2" placeholder="EleutherAI/pythia-70m"></textarea></label>
+      <div class="row2"><button class="primary" id="lw-go">Run the laws</button><button class="ghost" id="lw-all">Tick untested</button></div>
+      <p class="hint">Weights only: nothing is run on text, so any architecture works. Matrices larger than 1,024 on a side are sampled.</p>
+    </aside>
+    <div class="stage" id="lw-stage"></div>
   </section>
 
   <!-- ENGINE -->
@@ -224,5 +238,6 @@
 <script src="/static/picker.js"></script>
 <script src="/static/atlas.js"></script>
 <script src="/static/engine.js"></script>
+<script src="/static/laws.js"></script>
 </body>
 </html>
