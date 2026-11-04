@@ -102,6 +102,29 @@
     pick.querySelectorAll("[data-l]").forEach((b) => (b.onclick = () => { W.law = b.dataset.l; overview(); }));
     cb.appendChild(pick);
 
+    const [rp, rb] = panel("Which laws say the same thing", "Over every weight matrix of every model tested here. Two laws whose values rise and fall together (rank correlation of 0.7 or more) measure one property twice. A law a random matrix of the same shape already matches cannot tell trained weights from untrained ones.");
+    rp.style.marginTop = "18px";
+    st.appendChild(rp);
+    rb.innerHTML = `<p class="spinner">Comparing…</p>`;
+    api("/api/laws/redundancy").then((R) => {
+      if (!R.spearman) { rb.innerHTML = `<p class="muted">${esc(R.note || "Not enough models yet.")}</p>`; return; }
+      const named = Object.fromEntries(R.measures.map((m) => [m.law, m.label]));
+      const lab = (k) => (L[k] ? L[k].label : named[k] || k);
+      const groups = R.groups.filter((g) => g.length > 1);
+      const flat = (R.vs_random || []).filter((x) => !x.separates);
+      let f = `${R.matrices} matrices from ${R.models} model${R.models > 1 ? "s" : ""}: the ${R.measures.length} matrix measures carry about <b class="cab">${R.groups.length} independent signal${R.groups.length > 1 ? "s" : ""}</b>.`;
+      if (groups.length) f += ` Saying the same thing: ${groups.map((g) => g.map((k) => esc(lab(k))).join(" and ")).join("; ")}.`;
+      if (flat.length) f += ` No better than random at telling trained weights apart: ${flat.map((x) => esc(lab(x.law))).join(", ")}.`;
+      const keys = R.measures.map((m) => m.law);
+      const cell = (v, i, j) => i === j ? `<td class="num muted">–</td>` : `<td class="num ${Math.abs(v) >= R.threshold ? "ok" : Math.abs(v) < 0.3 ? "muted" : ""}">${v.toFixed(2)}</td>`;
+      rb.innerHTML = `<p class="finding" style="font-size:17px;margin:4px 0 14px">${f}</p>
+        <div class="scroll"><table><thead><tr><th>Rank correlation</th>${keys.map((k) => `<th class="num">${esc(lab(k).split(" ").slice(0, 3).join(" "))}</th>`).join("")}</tr></thead><tbody>${
+          R.spearman.map((row, i) => `<tr><td>${esc(lab(keys[i]))}</td>${row.map((v, j) => cell(v, i, j)).join("")}</tr>`).join("")}</tbody></table></div>
+        <table style="margin-top:14px"><thead><tr><th>Law</th><th class="num">Trained vs random (AUC)</th><th>Separates them?</th></tr></thead><tbody>${
+          (R.vs_random || []).map((x) => `<tr><td>${esc(lab(x.law))}</td><td class="num">${x.auc.toFixed(2)}</td><td class="${x.separates ? "ok" : "no"}">${x.separates ? "yes" : "no: random matches it"}</td></tr>`).join("")}</tbody></table>
+        <p class="sub" style="margin-top:8px">AUC is the chance that a trained matrix scores higher than a random one of the same shape: 0.5 means they cannot be told apart, 0 or 1 means always. Correlations are Spearman; ${R.threshold} or more (in either direction) counts as the same signal.</p>`;
+    }).catch((e) => { rb.innerHTML = `<p class="muted">${esc(e.message)}</p>`; });
+
     const [gp, gb] = panel("What the laws mean", "");
     gp.style.marginTop = "18px";
     gb.innerHTML = ids.map((x) => `<details><summary><b>${esc(L[x].label)}</b> <span class="muted">(${esc(L[x].field)}, ${L[x].kind})</span></summary><div class="math">${esc(L[x].formula)}</div><p class="sub">${esc(L[x].expect)}</p></details>`).join("");

@@ -626,11 +626,38 @@ def laws_summary():
     return clean(summary(LAWS_DIR))
 
 
+@app.get("/api/laws/redundancy")
+def laws_redundancy():
+    from .laws import redundancy
+
+    return clean(redundancy(LAWS_DIR))
+
+
+@app.get("/api/laws/map")
+def laws_map():
+    """A compact summary for other apps (Deep Network Designer's law table): every weight law with how many
+    tested models show it, every rule with a lever and the lever's verdict, and which laws say the same thing."""
+    from .engine.ledger import load
+    from .laws import LAWS, redundancy, summary
+
+    S = summary(LAWS_DIR)
+    L = load(ENGINE)
+    rules = [{"id": r["id"], "kind": r["kind"], "statement": r["statement"], "confidence": r.get("confidence"),
+              "status": r.get("status"), "lever": (r.get("lever") or {}).get("lever"), "support": len(r.get("support", [])),
+              "counter": len(r.get("counter", []))} for r in L["rules"].values()]
+    return clean({"version": VERSION, "laws": [{"id": k, "label": v["label"], "kind": v["kind"], "field": v["field"],
+                                                "have": S["universality"][k]["have"], "of": S["universality"][k]["of"]} for k, v in LAWS.items()],
+                  "models": [m["spec"] for m in S["models"]], "rules": rules, "redundancy": redundancy(LAWS_DIR)})
+
+
 @app.get("/api/laws/candidates")
 def laws_candidates():
     from .atlas.library import list_profiles
 
+    from .wsp.imports import list_imports
+
     out = [{"spec": s_, "group": "Micro Opus", "label": s_} for s_ in microopus.available()]
+    out += [{"spec": i["spec"], "group": "Sent from other apps", "label": f"{i['name']} ({i.get('source') or 'import'})"} for i in list_imports()]
     for d in sorted(LAB.iterdir(), reverse=True):
         if (d / "config.json").exists():
             cfg = json.loads((d / "config.json").read_text())
@@ -671,11 +698,11 @@ def laws_run(req: LawsReq):
                 raise InterruptedError("Stopped.")
             pr = lambda f, m, i=i: update((i + f) / len(specs), f"{spec}: {m}")
             try:
-                resolved = spec if spec.startswith("lab:") else catalog.resolve(spec, DATA, pr)
+                resolved = spec if spec.startswith(("lab:", "import:")) else catalog.resolve(spec, DATA, pr)
                 b = run_battery(spec, resolved, LAB, pr)
                 _write(LAWS_DIR / f"{law_id(spec)}.json", b)
                 done.append(spec)
-                if not spec.startswith("lab:"):
+                if not spec.startswith(("lab:", "import:")):
                     catalog.recent_add(DATA, spec)
             except Exception as e:
                 failed.append({"spec": spec, "error": f"{type(e).__name__}: {e}"})

@@ -24,6 +24,11 @@ Matrix laws (eigenvalues of W^T W / N, N = longer side)
   sv_powerlaw    singular values decay as a power law i^-gamma (scale-free)
   benford        first significant digits follow log10(1 + 1/d)
   kurtosis       excess kurtosis of the entries (0 for a Gaussian)
+  sign_coherence Dale's law, looked for in ordinary weights: for each unit,
+                 |sum of its weights| / sum of their sizes, averaged; the larger of
+                 the per-column and per-row values, since inputs are columns in
+                 PyTorch's Linear and rows in x @ W layouts. 1 = one sign per unit
+                 (excitatory or inhibitory); random weights score about sqrt(2 / (pi n))
 
 Model laws
   balance        rescaling symmetry: for each MLP neuron, squared norm of its
@@ -70,6 +75,9 @@ LAWS = {
     "kurtosis": {"kind": "emergent", "label": "Heavy-tailed weight values", "field": "Statistics",
                  "formula": "excess kurtosis = E[(w − μ)⁴]/σ⁴ − 3",
                  "expect": "0 for Gaussian values; large positive values mean a few weights are much bigger than the rest."},
+    "sign_coherence": {"kind": "emergent", "label": "One sign per unit (Dale's law)", "field": "Neuroscience",
+                       "formula": "c = mean over units j of |Σᵢ Wᵢⱼ| / Σᵢ |Wᵢⱼ| (columns or rows, the larger)",
+                       "expect": "Brains obey it: each neuron is excitatory or inhibitory. Random weights score about √(2/πn). If trained networks drift toward one sign per input on their own, building it in is redundant; if they do not, it is a prior training never finds."},
     "balance": {"kind": "emergent", "label": "Neuron balance (rescaling symmetry)", "field": "Symmetry and conservation (Noether)",
                 "formula": "corr( log‖w_in,j‖², log‖w_out,j‖² ) across MLP neurons j",
                 "expect": "Gradient flow conserves ‖w_in‖² − ‖w_out‖² per neuron in homogeneous networks, so trained neurons stay balanced."},
@@ -100,6 +108,11 @@ def load_tensors(spec, lab_dir: Path):
                 v = v.reshape(-1, v.shape[-1])  # (heads, dh, d) -> (heads*dh, d)
             out[k] = v
         return out, {"family": "lab", "heads": blob["config"]["n_heads"]}
+    if spec.startswith("import:"):
+        from .wsp.imports import load_import
+
+        t, about = load_import(spec)
+        return t, {"family": "import", "about": about}
     from .hub.load import fetch_weights
 
     t = fetch_weights(spec)
@@ -165,6 +178,13 @@ def matrix_measures(w, with_hist=False):
         out["benford_freq"] = f.round(4).tolist()
     z = (w - w.mean()) / (w.std() + 1e-12)
     out["kurtosis"] = float((z ** 4).mean() - 3)
+    # inputs are columns in PyTorch's Linear (out x in) and rows in x @ W layouts (GPT-2's Conv1D, Micro Opus,
+    # the lab): take the larger, so the law is found whichever way the matrix is stored
+    coh = lambda a, ax: float((np.abs(a.sum(ax)) / (np.abs(a).sum(ax) + 1e-30)).mean())
+    out["sign_coherence"] = max(coh(w, 0), coh(w, 1))
+    sv2 = np.sort(ev)[::-1]
+    cum = np.cumsum(sv2) / (sv2.sum() + 1e-30)
+    out["rank90_frac"] = float((int((cum < 0.9).sum()) + 1) / len(sv2))   # the Engine's low-rank rule, per matrix
     if with_hist:
         top = float(np.quantile(ev, 0.999))
         h, e = np.histogram(ev, bins=40, range=(0, top))
@@ -378,6 +398,10 @@ def verdicts(b):
     k, kg = g("real", "kurtosis"), g("gaussian", "kurtosis")
     out["kurtosis"] = {"value": k, "null": kg, "shuffled": g("shuffled", "kurtosis"), "holds": k is not None and k > 0.5 and (kg is None or k > kg + 0.5),
                        "unit": "median excess kurtosis"}
+    sc, scg, scs = g("real", "sign_coherence"), g("gaussian", "sign_coherence"), g("shuffled", "sign_coherence")
+    if sc is not None:
+        out["sign_coherence"] = {"value": sc, "null": scg, "shuffled": scs, "holds": sc > max(scg or 0, scs or 0) + 0.1,
+                                 "unit": "median coherence of an input's outgoing signs"}
     bal = b["model"]["balance"]
     if bal:
         c, cn = _med([x["corr"] for x in bal]), _med([x["null"] for x in bal])
@@ -416,3 +440,84 @@ def summary(laws_dir: Path):
 
 def law_id(spec):
     return re.sub(r"[^A-Za-z0-9]+", "-", spec).strip("-")[-70:]
+
+
+# ------------------------------------------------------------------ which laws say the same thing
+MEASURES = {"alpha": "heavy_tail", "spike_frac": "spikes", "gamma": "sv_powerlaw", "r": "level_spacing",
+            "benford_mad": "benford", "kurtosis": "kurtosis", "sign_coherence": "sign_coherence", "rank90_frac": "low_rank"}
+EXTRA = {"low_rank": "Low effective rank (the Engine's rule and the planner's reading)"}
+
+
+def _ranks(x):
+    return np.argsort(np.argsort(x)).astype(float)
+
+
+def _auc(a, b):
+    """Probability that a value from a is larger than one from b (0.5 = cannot tell them apart)."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    if not len(a) or not len(b):
+        return None
+    allv = np.concatenate([a, b])
+    r = _ranks(allv) + 1
+    return float((r[:len(a)].sum() - len(a) * (len(a) + 1) / 2) / (len(a) * len(b)))
+
+
+def redundancy(laws_dir: Path, same=0.7):
+    """Over every matrix of every model tested: which measures rise and fall together (Spearman), and which
+    ones a random matrix of the same shape already matches (how well each separates real from Gaussian)."""
+    real, gauss, models = {k: [] for k in MEASURES}, {k: [] for k in MEASURES}, 0
+    rows = []
+    for f in sorted(laws_dir.glob("*.json")):
+        try:
+            b = json.loads(f.read_text())
+        except Exception:
+            continue
+        models += 1
+        for m in b.get("matrices", []):
+            vals = {k: m["real"].get(k) for k in MEASURES}
+            if all(isinstance(v, (int, float)) and math.isfinite(v) for v in vals.values()):
+                rows.append(vals)
+            for k in MEASURES:
+                v, gv = m["real"].get(k), m["gaussian"].get(k)
+                if isinstance(v, (int, float)) and math.isfinite(v):
+                    real[k].append(v)
+                if isinstance(gv, (int, float)) and math.isfinite(gv):
+                    gauss[k].append(gv)
+    keys = list(MEASURES)
+    label = lambda k: LAWS[MEASURES[k]]["label"] if MEASURES[k] in LAWS else EXTRA[MEASURES[k]]
+    out = {"models": models, "matrices": len(rows), "measures": [{"key": k, "law": MEASURES[k], "label": label(k)} for k in keys],
+           "threshold": same}
+    if len(rows) < 8:
+        out["note"] = "Test at least a few models (8 or more weight matrices with every measure) to compare the laws."
+        return out
+    R = {k: _ranks([r[k] for r in rows]) for k in keys}
+    M = [[float(np.corrcoef(R[a], R[b])[0, 1]) if np.std(R[a]) and np.std(R[b]) else 0.0 for b in keys] for a in keys]
+    out["spearman"] = [[round(v, 3) for v in row] for row in M]
+    pairs = []
+    for i, a in enumerate(keys):
+        for j in range(i + 1, len(keys)):
+            if abs(M[i][j]) >= same:
+                pairs.append({"a": MEASURES[a], "b": MEASURES[keys[j]], "rho": round(M[i][j], 3)})
+    out["same"] = sorted(pairs, key=lambda x: -abs(x["rho"]))
+    sep = []
+    for k in keys:
+        a = _auc(real[k], gauss[k])
+        if a is not None:
+            sep.append({"law": MEASURES[k], "auc": round(a, 3), "separates": abs(a - 0.5) >= 0.2})
+    out["vs_random"] = sep
+    # groups: laws joined by a strong correlation count as one signal
+    parent = {k: k for k in keys}
+
+    def find(x):
+        while parent[x] != x:
+            x = parent[x]
+        return x
+    for i, a in enumerate(keys):
+        for j in range(i + 1, len(keys)):
+            if abs(M[i][j]) >= same:
+                parent[find(keys[j])] = find(a)
+    groups = {}
+    for k in keys:
+        groups.setdefault(find(k), []).append(MEASURES[k])
+    out["groups"] = list(groups.values())
+    return out
