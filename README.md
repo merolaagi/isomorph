@@ -16,6 +16,8 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 
 ## What it does
 
+**Guide** (top right). A tour of the whole app, and a walkthrough for each tab: a spotlight moves to each part of the screen, a pointer shows what to click or type, and a card says what it does. It starts by itself on the first visit; arrow keys move through it and Esc ends it. It never starts a job for you.
+
 **Pick any model.** Search Hugging Face from inside the app (filter by task and size, sort by downloads, likes or trend), or paste a Hugging Face link, a ModelScope link, a direct link to a `.safetensors` or `.bin` file, a model id, or a local folder. Each pick is checked (architecture, size, download size, whether it can be traced) and can be saved to *My models*. Gated or private models work once you save a Hugging Face token; it stays on your Mac in `data/settings.json`.
 
 **Side by side.** Two models (Hugging Face names or local folders), one prompt:
