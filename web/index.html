@@ -20,6 +20,7 @@
     <button role="tab" data-view="trace" aria-selected="true">Side by side</button>
     <button role="tab" data-view="atlas" aria-selected="false">Pattern library</button>
     <button role="tab" data-view="laws" aria-selected="false">Laws</button>
+    <button role="tab" data-view="wsp" aria-selected="false">Weight space</button>
     <button role="tab" data-view="engine" aria-selected="false">Engine</button>
     <button role="tab" data-view="lab" aria-selected="false">Ground-truth lab</button>
     <button role="tab" data-view="hub" aria-selected="false">Model statistics</button>
@@ -112,6 +113,53 @@
       <p class="hint">Weights only: nothing is run on text, so any architecture works. Matrices larger than 1,024 on a side are sampled.</p>
     </aside>
     <div class="stage" id="lw-stage"></div>
+  </section>
+
+  <!-- WEIGHT SPACE -->
+  <section class="view" id="view-wsp" hidden>
+    <aside class="rail">
+      <div class="subtabs" id="ws-modes" role="tablist">
+        <button data-mode="plan" aria-selected="true">Plan a fine-tune</button>
+        <button data-mode="read" aria-selected="false">Read</button>
+        <button data-mode="fix" aria-selected="false">Fix</button>
+      </div>
+      <label>Model<input id="ws-spec" value="microopus:words" list="ws-cands" spellcheck="false"></label>
+      <datalist id="ws-cands"></datalist>
+      <p class="hint">Any causal language model Isomorph can load: Hugging Face, a local folder, Micro Opus, or (for reading) a ground-truth lab model.</p>
+
+      <form id="ws-plan" class="ws-form">
+        <h2>Which weights to tune</h2>
+        <p class="hint">Reads every attention and MLP matrix, and the gradient your examples give it, then picks matrices and ranks two ways: from the weights alone, and from the gradient. Both are trained against three controls at the same budget and scored on examples they never saw.</p>
+        <label>Examples, one per line<textarea id="ws-ex" rows="8" spellcheck="false" placeholder="prompt => target&#10;or plain text the model should model better"></textarea></label>
+        <label>Held-out examples (optional)<textarea id="ws-ho" rows="3" spellcheck="false" placeholder="Without these, a quarter of the examples is set aside."></textarea></label>
+        <div class="row2"><label>Budget, % of tunable weights<input id="ws-budget" type="number" value="1" min="0.01" max="20" step="0.1"></label><label>Steps<input id="ws-steps" type="number" value="150" min="1" max="3000"></label></div>
+        <div class="row2"><label>Seeds<input id="ws-seeds" type="number" value="2" min="1" max="5"></label><label>Learning rate<input id="ws-lr" type="number" value="0.002" step="0.0005"></label></div>
+        <div class="row2"><button class="primary" type="submit">Plan and check</button><button class="ghost" type="button" id="ws-plan-demo">Example task</button></div>
+      </form>
+
+      <form id="ws-read" class="ws-form" hidden>
+        <h2>Read the weights</h2>
+        <p class="hint">Claude works through a fixed set of tools on the weights (statistics, singular vectors, spectra, how one matrix acts on another's output, what a direction means in tokens). Quizzes with a known answer are graded.</p>
+        <label>Task<select id="ws-rtask"></select></label>
+        <label id="ws-q-l" hidden>Question<textarea id="ws-q" rows="4"></textarea></label>
+        <label>Forward passes it may run<input id="ws-rfb" type="number" value="0" min="0" max="50"></label>
+        <button class="primary wide" type="submit">Read</button>
+      </form>
+
+      <form id="ws-fix" class="ws-form" hidden>
+        <h2>Fix the weights</h2>
+        <p class="hint">Claude edits weights directly, without training: removes a direction from what a matrix writes, scales a slice, adds a rank-one term. An edit is kept only if the practice score improves; held-out examples and the same edits in random directions judge it.</p>
+        <label>Task<select id="ws-ftask"></select></label>
+        <label id="ws-goal-l" hidden>Goal<input id="ws-goal" placeholder="what the edit should achieve"></label>
+        <label id="ws-fex-l" hidden>Examples, one per line<textarea id="ws-fex" rows="6" spellcheck="false" placeholder="prompt => target"></textarea></label>
+        <label>Forward passes<input id="ws-ffb" type="number" value="25" min="1" max="200"></label>
+        <button class="primary wide" type="submit">Fix</button>
+      </form>
+      <p class="hint" id="ws-key"></p>
+      <h2 class="mt">History</h2>
+      <ul class="runs" id="ws-history"><li class="empty">Runs appear here.</li></ul>
+    </aside>
+    <div class="stage" id="ws-stage"></div>
   </section>
 
   <!-- ENGINE -->
@@ -239,5 +287,6 @@
 <script src="/static/atlas.js"></script>
 <script src="/static/engine.js"></script>
 <script src="/static/laws.js"></script>
+<script src="/static/wsp.js"></script>
 </body>
 </html>

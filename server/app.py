@@ -890,6 +890,11 @@ def token_set(req: TokenReq):
 
 
 # ------------------------------------------------------------------ static
+# ------------------------------------------------------------------ weight-space programming
+from .wsp.api import make_router  # noqa: E402
+
+app.include_router(make_router(jobs, DATA, LAB, lambda s_, pr: catalog.resolve(s_, DATA, pr)))
+
 WEB = ROOT / "web"
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 

@@ -345,3 +345,14 @@ h3.lw-g { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; col
 #lw-cands label.check { margin: 3px 0; font-size: 12.5px; align-items: flex-start; }
 .lw-l { overflow-wrap: anywhere; }
 .lawtab button.link { text-align: left; }
+
+/* weight space */
+.ws-form { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.ws-form h2 { margin-bottom: 0; }
+.ws-thought { font-family: var(--serif); font-size: 15.5px; line-height: 1.5; margin: 8px 0; max-width: 780px; white-space: pre-wrap; }
+.ws-tool { border-left: 2px solid var(--line); padding: 2px 0 2px 10px; margin: 4px 0; font-size: 13px; }
+.ws-tool summary { cursor: pointer; color: var(--muted); }
+.ws-tool pre { font-size: 12px; max-height: 320px; overflow: auto; background: var(--soft); padding: 8px; border-radius: 6px; white-space: pre-wrap; }
+#ws-modes { margin-top: 0; }
+#ws-modes button { padding: 8px 8px; }
+.ws-form .row2 input { width: 100%; }
