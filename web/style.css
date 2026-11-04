@@ -455,3 +455,11 @@ h3.lw-g { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; col
 .as-form { display: flex; gap: 8px; align-items: flex-end; flex: none; }
 .as-form textarea { flex: 1; resize: none; }
 @media (prefers-reduced-motion: reduce) { .as-win { animation: none; } .as-typing i { animation: none; } }
+.as-h { margin: 4px 0 6px; font-size: 15px; }
+.as-intro { font-size: 13px; line-height: 1.5; color: var(--ink); margin: 0 0 6px; }
+.as-sec { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 6px; }
+.as-qs { display: flex; flex-direction: column; gap: 6px; }
+.as-qs button { text-align: left; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; font-size: 13px; cursor: pointer; color: var(--ink); }
+.as-qs button:hover { border-color: var(--ab); }
+.as-div { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11.5px; margin: 4px 0; }
+.as-div::before, .as-div::after { content: ""; flex: 1; border-top: 1px solid var(--line); }

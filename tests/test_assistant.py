@@ -70,8 +70,30 @@ def test_answers_without_and_with_a_key():
     assert "Held-out loss 0.53" in seen["system"] and "MANUAL" in seen["system"] and len(seen["messages"]) == 3
 
 
+def test_every_page_has_its_help():
+    root, d = dirs()
+    s = AS.state(root, d["lab"], d["atlas"], d["engine"], d["laws"], True, "0.16.0")
+    for view in ("trace", "atlas", "laws", "wsp", "engine", "lab", "hub", "about"):
+        p = AS.page(view, None, s)
+        assert p["title"] and p["intro"] and p["prompts"], view
+        assert all(AS.safe_action(a["action"]) for a in p["actions"]), view
+    for m in ("plan", "read", "fix", "write"):
+        p = AS.page("wsp", m, s)
+        assert p["key"] == f"wsp-{m}" and m.capitalize()[:4] in p["title"] or m == "plan", (m, p["title"])
+        assert p["intro"] == AS.MANUAL[f"wsp-{m}"][1] and all(AS.safe_action(a["action"]) for a in p["actions"])
+    assert [x["id"] for x in AS.page("wsp", "write", s)["steps"]] == ["write", "key", "write-claude"]
+    assert AS.page("nowhere")["key"] == "trace"
+    seen = {}
+    AS.ask("What is broken here?", [], s, {"view": "wsp", "mode": "write", "screen": "Agreement 51.2%"},
+           lambda system, messages, tools: seen.update(system=system) or {"content": [{"type": "text", "text": "v[0]."}]})
+    assert "THE USER IS ON: Weight space · Write" in seen["system"] and "Agreement 51.2%" in seen["system"]
+    r = AS.offline("explain", s, {"view": "laws"})
+    assert r["reply"].startswith("**Laws.**")
+
+
 if __name__ == "__main__":
     test_checklist_follows_what_exists()
     test_actions_are_page_only()
     test_answers_without_and_with_a_key()
+    test_every_page_has_its_help()
     print("assistant ok")

@@ -928,11 +928,11 @@ def _assistant_state(seen=""):
 
 
 @app.get("/api/assistant")
-def assistant_state(seen: str = ""):
+def assistant_state(seen: str = "", view: str = "", mode: str = ""):
     from . import assistant
 
     s = _assistant_state(seen)
-    return clean({"state": s, **assistant.steps(s)})
+    return clean({"state": s, **assistant.steps(s), "page": assistant.page(view or "trace", mode or None, s)})
 
 
 class AskReq(BaseModel):
