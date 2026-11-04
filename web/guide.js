@@ -20,6 +20,7 @@
       { sel: nav("lab"), act: "point", title: "Ground-truth lab", text: "Tiny transformers that learn (a + b) mod p, where the right algorithm is known. Check any tool here first: if it cannot find the Fourier circuits in these, do not trust it on a big model." },
       { sel: nav("hub"), act: "point", title: "Model statistics", text: "Compare two checkpoints from the Hub: weights directly (cosine, spectra, low-rank differences) or activations on the same texts (CKA, neuron matching, stitching)." },
       { sel: "#env", act: "point", title: "Server status", text: "Version, torch and the device in use (Apple GPU shows as mps). Long jobs show a progress bar under the header, with a Stop button; one job runs at a time." },
+      { sel: ".as-fab", act: "click", title: "The Assistant", text: "A checklist of next steps worked out from what you have already run, each with a Go button that opens the right tab and fills it in; and a chat that answers how-to questions and explains the result on your screen (with Claude when your key is saved)." },
       { sel: "#iso-guide-btn", act: "click", title: "Guide, any time", text: "Open this for a walkthrough of the tab you are on. Start with Weight space or Side by side: Micro Opus models need no download." },
     ]},
     trace: { title: "Side by side, step by step", steps: [

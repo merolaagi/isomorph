@@ -16,6 +16,8 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 
 ## What it does
 
+**Assistant** (bottom right). An overlay window with two parts. *Next steps*: a checklist worked out from what is already on this Mac (traces, lab models, laws runs, library profiles, the Engine's ledger, Weight space runs, whether a key is saved), the next one marked, each with a Go button that opens the right tab, fills in what it can and starts nothing: you press the button there. *Ask*: a chat about any tab, result or next step. With a key, Claude answers from a built-in manual and the state of this Mac, and *Explain my screen* also sends the text of the result you are looking at; its suggested actions are checked to be page-only. Without a key, the closest sections of the manual answer.
+
 **Light and dark.** The sun/moon button at the top right switches theme; until you choose, it follows the system. The choice is remembered and shared with the Micro Opus page.
 
 **Guide** (top right). A tour of the whole app, and a walkthrough for each tab: a spotlight moves to each part of the screen, a pointer shows what to click or type, and a card says what it does. It starts by itself on the first visit; arrow keys move through it and Esc ends it. It never starts a job for you.
@@ -88,7 +90,7 @@ server/hub/          checkpoint loading, weight and activation comparison
 server/trace/        file anatomy and side-by-side prompt tracing
 server/wsp/          weight space: fine-tune planner, read/fix workspace, Claude tool loop, tasks
 web/                 interface (no build step, no JS dependencies)
-tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py, tests/test_microopus.py, tests/test_wsp.py
+tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py, tests/test_microopus.py, tests/test_wsp.py, tests/test_assistant.py
 scripts/push.sh      commit and push to GitHub (merolaagi/isomorph)
 scripts/package.sh   build a uniquely named release archive
 ```

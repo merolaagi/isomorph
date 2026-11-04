@@ -917,6 +917,51 @@ def token_set(req: TokenReq):
 
 
 # ------------------------------------------------------------------ static
+# ------------------------------------------------------------------ assistant
+def _assistant_state(seen=""):
+    from . import assistant
+    from .engine.narrator import get_key
+
+    job = next(({"title": j.title, "state": j.state, "message": j.message} for j in jobs.jobs.values() if j.state in ("queued", "running")), None)
+    return assistant.state(DATA, LAB, ATLAS, ENGINE, LAWS_DIR, bool(get_key(DATA / "settings.json")), VERSION, job,
+                           [x for x in seen.split(",") if re.fullmatch(r"[a-z\-]{1,20}", x)])
+
+
+@app.get("/api/assistant")
+def assistant_state(seen: str = ""):
+    from . import assistant
+
+    s = _assistant_state(seen)
+    return clean({"state": s, **assistant.steps(s)})
+
+
+class AskReq(BaseModel):
+    question: str
+    history: list[dict] = Field(default_factory=list)
+    context: dict = Field(default_factory=dict)
+    seen: str = ""
+
+
+@app.post("/api/assistant/ask")
+def assistant_ask(req: AskReq):
+    from . import assistant
+    from .engine.narrator import get_key
+    from .wsp.agent import AGENT_MODEL, api_call
+
+    if not req.question.strip():
+        raise HTTPException(400, "Ask a question.")
+    s = _assistant_state(req.seen)
+    key = get_key(DATA / "settings.json")
+    if not key:
+        return assistant.offline(req.question, s, req.context)
+    try:
+        return assistant.ask(req.question, req.history, s, req.context, api_call(key, AGENT_MODEL, max_tokens=1500))
+    except Exception as e:  # a network or API failure still answers from the manual
+        out = assistant.offline(req.question, s, req.context)
+        out["reply"] = f"Claude could not be reached ({e}). From the manual instead:\n\n" + out["reply"]
+        return out
+
+
 # ------------------------------------------------------------------ weight-space programming
 from .wsp.api import make_router  # noqa: E402
 
