@@ -13,8 +13,13 @@
   --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
   color-scheme: light;
 }
+/* Dark follows the system unless a theme was chosen with the header switch (data-theme on <html>). */
+:root[data-theme="dark"] {
+  --paper: #12161d; --panel: #1a2029; --ink: #e6eaf0; --muted: #9aa5b4; --line: #2c3542; --soft: #222a35;
+  --a: #7d97ff; --b: #f07aa5; --ab: #b595f0; --warn: #e3a64a; color-scheme: dark;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --paper: #12161d; --panel: #1a2029; --ink: #e6eaf0; --muted: #9aa5b4; --line: #2c3542; --soft: #222a35;
     --a: #7d97ff; --b: #f07aa5; --ab: #b595f0; --warn: #e3a64a; color-scheme: dark;
   }
@@ -397,3 +402,7 @@ h3.lw-g { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; col
 .guide-pulse { animation: guide-glow 1.2s ease; }
 @keyframes guide-glow { 0%, 100% { box-shadow: none; } 40% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ab) 40%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .guide-spot, .guide-card, .guide-ptr { transition: none; } .guide-card.fresh, .guide-ptr.click .guide-ring, .guide-ptr.click svg, .guide-pulse { animation: none; } }
+
+/* theme switch */
+.theme-btn { display: inline-grid; place-items: center; width: 32px; height: 30px; padding: 0; }
+.theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
