@@ -13,6 +13,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+import numpy as np
 import torch
 
 from server.hub.load import load_lm
@@ -245,6 +246,61 @@ def test_import_from_another_app():
         raise AssertionError("bad bytes accepted")
     except Exception as e:
         assert "AssertionError" not in type(e).__name__
+
+
+def test_write_playground_and_claude():
+    import shutil
+    import subprocess
+    from server.wsp import writer as Wr
+
+    for k, p in Wr.PATTERNS.items():
+        assert Wr.agreement(p["crafted"], k) >= 0.99, k                       # the crafted networks compute their patterns
+        assert Wr.agreement(Wr.broken(k), k) < 0.9, k                          # one flipped output weight breaks them
+    for bad in ({"W": [[1, 2, 3]], "b": [0], "v": [1], "bias": 0}, {"W": [[1, 1]], "b": [0, 0], "v": [1], "bias": 0},
+                {"W": [[1, float("nan")]], "b": [0], "v": [1], "bias": 0}, {"W": [[1, 1]] * 17, "b": [0] * 17, "v": [0] * 17, "bias": 0}):
+        try:
+            Wr.check(bad)
+            raise AssertionError(f"accepted {bad}")
+        except ValueError:
+            pass
+    meta = Wr.meta()
+    assert len(meta["patterns"]["xor"]["target"]) == 41 * 41
+    # Claude writes XOR in one draft plus a finish; the grade, the controls and the summary line
+    c = Wr.PATTERNS["xor"]["crafted"]
+    res = Wr.run_write("xor", scripted([lambda r: ("evaluate", {"net": {**c, "v": [0, 0, 0, 0]}}),
+                                        lambda r: ("finish", {**c, "explanation": "four diagonal distances"})]), budget=3)
+    assert res["agreement"] == 1.0 and res["drafts"][0]["agreement"] < 0.9 and res["forward_used"] == 1
+    assert res["trained"]["mean"] > 0.9 and 0.3 < res["random"]["mean"] < 0.7 and 0.5 <= res["majority"] < 0.6
+    from server.wsp.api import _summary
+    assert "100.0% agreement" in _summary(dict(res, id="x"))["line"]
+    # one shot: no evaluate tool at all
+    one = Wr.run_write("band", scripted([lambda r: ("evaluate", {"net": Wr.PATTERNS["band"]["crafted"]}),
+                                         lambda r: ("finish", Wr.PATTERNS["band"]["crafted"])]), budget=0)
+    assert one["forward_used"] == 0 and one["agreement"] == 1.0 and "error" in one["transcript"][0]["result"]
+    # repair: the fault is found and only it is changed
+    rep = Wr.run_write("diagonal", scripted([lambda r: ("finish", Wr.PATTERNS["diagonal"]["crafted"])]), mode="repair", budget=0)
+    assert rep["fixed_the_fault"] and rep["weights_changed"] == 1 and rep["start_agreement"] < rep["agreement"] == 1.0
+    # an invalid answer is reported, not graded
+    bad = Wr.run_write("disc", scripted([lambda r: ("finish", {"W": [[1, 1]], "b": [0], "v": [1], "bias": 0})]), budget=0)
+    assert bad["net"] is None and bad["agreement"] is None and "hidden units" in bad["invalid"]
+    # a written network goes to Read as an import
+    from safetensors.torch import save
+    from server.wsp import imports
+    imports.set_dir(pathlib.Path(tempfile.mkdtemp()))
+    info = imports.save_import(save(Wr.to_tensors(c)), "xor (written)", "2 -> 4 -> 1", "Write playground")
+    ws = Workspace(info["spec"])
+    assert ws.tensor_stats("hidden.weight")["shape"] == [4, 2] and ws.tensor_stats("out.weight")["shape"] == [1, 4]
+    # the browser's forward pass is the server's, to the last digit (when node is installed)
+    node = shutil.which("node")
+    if node:
+        js = (pathlib.Path(__file__).resolve().parents[1] / "web" / "write.js").read_text()
+        body = js[js.index("function predict"):js.index("function agreement")]
+        rng = np.random.default_rng(3)
+        n = {"W": rng.normal(0, 2, (6, 2)).tolist(), "b": rng.normal(0, 1, 6).tolist(), "v": rng.normal(0, 3, 6).tolist(), "bias": 0.3}
+        pts = rng.uniform(-1, 1, (20, 2)).tolist()
+        prog = "const sig=(z)=>1/(1+Math.exp(-z));" + body + f"const n={json.dumps(n)};console.log(JSON.stringify({json.dumps(pts)}.map(([x,y])=>predict(n,x,y))));"
+        out = json.loads(subprocess.run([node, "-e", prog], capture_output=True, text=True, check=True).stdout)
+        assert np.allclose(out, Wr.predict(n, np.array(pts)), atol=1e-12)
 
 
 if __name__ == "__main__":

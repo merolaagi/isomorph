@@ -406,3 +406,13 @@ h3.lw-g { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; col
 /* theme switch */
 .theme-btn { display: inline-grid; place-items: center; width: 32px; height: 30px; padding: 0; }
 .theme-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+
+/* write (from Weightspace Lab) */
+.ww-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 1100px) { .ww-grid { grid-template-columns: 1fr; } }
+.ww-canvas { width: 100%; max-width: 420px; aspect-ratio: 1; border-radius: 8px; display: block; cursor: crosshair; }
+.ww-sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 22px; }
+.ww-row { display: grid; grid-template-columns: 64px 1fr 70px; align-items: center; gap: 8px; }
+.ww-row input[type=range] { width: 100%; accent-color: var(--ab); }
+.ww-num { padding: 3px 6px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.ww-file { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; cursor: pointer; color: var(--ink); font-size: 14px; }

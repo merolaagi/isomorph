@@ -34,7 +34,9 @@
   document.querySelectorAll("#ws-modes button").forEach((b) => (b.onclick = () => {
     W.mode = b.dataset.mode;
     document.querySelectorAll("#ws-modes button").forEach((x) => x.setAttribute("aria-selected", x === b));
-    for (const m of ["plan", "read", "fix"]) $(`#ws-${m}`).hidden = m !== W.mode;
+    for (const m of ["plan", "read", "fix", "write"]) $(`#ws-${m}`).hidden = m !== W.mode;
+    $("#ws-spec").closest("label").hidden = $("#ws-spec-hint").hidden = W.mode === "write";
+    if (W.mode === "write" && window.WsWrite) window.WsWrite.open();
   }));
 
   function taskFields() {
@@ -77,7 +79,7 @@
     ul.innerHTML = H.length ? "" : `<li class="empty">Runs appear here.</li>`;
     for (const h of H) {
       const li = document.createElement("li");
-      const what = h.kind === "plan" ? "Plan" : h.kind === "read" ? `Read: ${h.task}` : `Fix: ${h.task}`;
+      const what = h.kind === "plan" ? "Plan" : h.kind === "read" ? `Read: ${h.task}` : h.kind === "write" ? `Write: ${h.task}` : `Fix: ${h.task}`;
       li.innerHTML = `<button><span class="t1">${esc(what)} · ${esc(String(h.spec).split("/").slice(-1)[0])}</span><span class="t2">${esc(h.line || "")}</span></button>`;
       li.querySelector("button").onclick = async () => show(await api(`/api/wsp/run/${h.id}`));
       ul.appendChild(li);
@@ -86,6 +88,7 @@
 
   // ------------------------------------------------------------ results
   function show(r) {
+    if (r.kind === "write" && window.WsWrite) return window.WsWrite.showResult(r);
     if (r.kind === "plan") return showPlan(r);
     if (r.kind === "read") return showRead(r);
     return showFix(r);
@@ -176,6 +179,10 @@
   }
 
   document.querySelector('nav button[data-view="wsp"]').addEventListener("click", () => { if (!W.meta) init(); });
+  window.WsCore = { history: () => history(), mode: (m) => document.querySelector(`#ws-modes button[data-mode="${m}"]`).click(),
+                    hasKey: () => !!(W.meta && W.meta.has_key), readImport: (spec, q) => {
+                      document.querySelector('#ws-modes button[data-mode="read"]').click();
+                      $("#ws-spec").value = spec; $("#ws-rtask").value = "free"; taskFields(); $("#ws-q").value = q; } };
 
   // Another app can open this tab on a model it sent: /#wsp/read/import:<id>
   const m = location.hash.match(/^#wsp(?:\/(plan|read|fix))?(?:\/(.+))?$/);

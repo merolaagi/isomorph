@@ -45,12 +45,29 @@ class FixReq(BaseModel):
     max_turns: int = 40
 
 
+class WriteReq(BaseModel):
+    pattern: str
+    mode: str = "write"
+    hidden: int | None = None
+    budget: int = 5
+    model: str | None = None
+
+
+class WriteImportReq(BaseModel):
+    net: dict
+    pattern: str = ""
+    name: str = ""
+
+
 def _summary(r):
     g = r.get("grade") or {}
     s = {"id": r["id"], "kind": r["kind"], "task": r.get("task"), "spec": r["spec"], "created": r.get("created"),
          "seconds": r.get("seconds")}
     if r["kind"] == "plan":
         s["line"] = r.get("verdict", "")[:160]
+    elif r["kind"] == "write":
+        a = r.get("agreement")
+        s["line"] = (f"{a * 100:.1f}% agreement" if a is not None else "no valid network") + f" · trained {r['trained']['mean'] * 100:.1f}%"
     elif r["kind"] == "read":
         s["line"] = ("correct" if g.get("correct") else "not correct" if g.get("correct") is False else "not graded") + (
             f", score {g['score']:.2f}" if isinstance(g.get("score"), (int, float)) else "")
@@ -164,6 +181,48 @@ def make_router(jobs, data_dir: Path, lab_dir: Path, resolve):
     @r.get("/api/wsp/imports")
     def list_imported():
         return imports.list_imports()
+
+    @r.get("/api/wsp/write/meta")
+    def write_meta():
+        from .writer import meta as wmeta
+
+        return wmeta()
+
+    @r.post("/api/wsp/write")
+    def write(req: WriteReq):
+        from .writer import PATTERNS, run_write
+
+        if req.pattern not in PATTERNS or req.mode not in ("write", "repair"):
+            raise HTTPException(400, "Choose a pattern, and write or repair.")
+        if not 0 <= req.budget <= 50 or (req.hidden is not None and not 1 <= req.hidden <= 16):
+            raise HTTPException(400, "Evaluations 0 to 50, hidden units 1 to 16.")
+        call = agent_call(req.model)
+
+        def work(update, stopped):
+            res = run_write(req.pattern, call, req.mode, req.hidden, req.budget, progress=update, should_stop=stopped)
+            res["agent_model"] = req.model or AGENT_MODEL
+            return save(res)
+        return {"job": jobs.submit("wsp-write", f"Claude {'repairs' if req.mode == 'repair' else 'writes'} a network", work).id}
+
+    @r.post("/api/wsp/write/import")
+    def write_import(req: WriteImportReq):
+        """A network from the playground (or a Weightspace Lab export) as a model the Read tools and Laws can open."""
+        from safetensors.torch import save as st_save
+
+        from .writer import PATTERNS, check, to_tensors
+
+        net = req.net.get("weights", req.net) if isinstance(req.net, dict) else req.net
+        try:
+            n = check(net)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        H = n["W"].shape[0]
+        pat = req.pattern or req.net.get("pattern", "")
+        rule = PATTERNS[pat]["rule"] if pat in PATTERNS else "unknown"
+        about = (f"A 2 -> {H} -> 1 network written by hand in the Write playground: hidden.weight is W ({H} x 2), hidden.bias is b, "
+                 f"out.weight is v (1 x {H}), out.bias is the output bias; h = relu(W [x, y] + b), p = sigmoid(v h + bias). "
+                 f"It was meant to compute: {rule}.")
+        return imports.save_import(st_save(to_tensors(n)), req.name or f"written {pat or 'network'}", about, "Write playground")
 
     @r.get("/api/wsp/history")
     def history():

@@ -123,10 +123,11 @@
         <button data-mode="plan" aria-selected="true">Plan a fine-tune</button>
         <button data-mode="read" aria-selected="false">Read</button>
         <button data-mode="fix" aria-selected="false">Fix</button>
+        <button data-mode="write" aria-selected="false">Write</button>
       </div>
       <label>Model<input id="ws-spec" value="microopus:words" list="ws-cands" spellcheck="false"></label>
       <datalist id="ws-cands"></datalist>
-      <p class="hint">Any causal language model Isomorph can load: Hugging Face, a local folder, Micro Opus, or (for reading) a ground-truth lab model.</p>
+      <p class="hint" id="ws-spec-hint">Any causal language model Isomorph can load: Hugging Face, a local folder, Micro Opus, or (for reading) a ground-truth lab model.</p>
 
       <form id="ws-plan" class="ws-form">
         <h2>Which weights to tune</h2>
@@ -155,6 +156,15 @@
         <label id="ws-fex-l" hidden>Examples, one per line<textarea id="ws-fex" rows="6" spellcheck="false" placeholder="prompt => target"></textarea></label>
         <label>Forward passes<input id="ws-ffb" type="number" value="25" min="1" max="200"></label>
         <button class="primary wide" type="submit">Fix</button>
+      </form>
+      <form id="ws-write" class="ws-form" hidden>
+        <h2>Write a network</h2>
+        <p class="hint">A 2 → H → 1 network you can see whole (from Weightspace Lab). Edit its weights by hand in the playground, or have Claude write them from the rule alone, with no data and no training. Graded on a 41 × 41 grid, against random weights and against the same network trained the ordinary way.</p>
+        <label>Pattern<select id="ww-pattern"></select></label>
+        <label>Task<select id="ww-mode"><option value="write">Claude writes it from scratch</option><option value="repair">Claude repairs the broken network</option></select></label>
+        <div class="row2"><label>Hidden units<input id="ww-hidden" type="number" value="4" min="1" max="16"></label><label>Drafts it may score<input id="ww-budget" type="number" value="5" min="0" max="50"></label></div>
+        <button class="primary wide" type="submit">Ask Claude</button>
+        <p class="hint">Drafts 0 = one shot, from the rule alone, as in the paper's experiments. The playground on the right needs no key.</p>
       </form>
       <p class="hint" id="ws-key"></p>
       <h2 class="mt">History</h2>
@@ -289,6 +299,7 @@
 <script src="/static/engine.js"></script>
 <script src="/static/laws.js"></script>
 <script src="/static/wsp.js"></script>
+<script src="/static/write.js"></script>
 <script src="/static/guide.js"></script>
 </body>
 </html>

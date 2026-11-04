@@ -43,6 +43,9 @@
       { sel: "#ws-rfb", act: "type", title: "Forward passes", text: "0 means from the weights alone. A few passes let Claude look at attention on texts it writes." },
       { before: mode("fix"), sel: "#ws-ftask", act: "click", title: "Fix: edit the weights", text: "'Find and remove a planted fault' plants a known fault and measures how much of the damage Claude repairs. 'Your goal' takes your own examples. Edits are kept only if practice improves, then judged on held-out examples against the same edits in random directions." },
       { sel: "#ws-key", act: "point", title: "The key", text: "Read and Fix call Claude with your Anthropic key, stored only on this Mac (Engine tab)." },
+      { before: mode("write"), sel: "#ww-plot", act: "point", title: "Write: a network you can see whole", text: "From Weightspace Lab: a 2 → H → 1 network drawn as its decision landscape. White dots are grid points where it disagrees with the target. It starts broken: one output weight has the wrong sign." },
+      { sel: "#ww-sliders", act: "point", title: "Edit the weights", text: "Drag a slider or type a number; the landscape and the agreement update at once. Apply crafted weights shows a hand-written solution; exports load straight into Weightspace Lab and back." },
+      { sel: "#ws-write button[type=submit]", act: "click", title: "Ask Claude to write it", text: "Claude gets the rule in words and writes every weight, with no data and no training, or finds the fault in the broken network. It is graded on the same grid, against random weights and against the same network trained on 400 labelled points." },
       { before: mode("plan"), sel: "#ws-history", act: "point", title: "History", text: "Every plan, reading and fix is kept here with its full transcript. Saved checkpoints from Deep Network Designer arrive through its 'read' button and show up in the model list." },
     ]},
     atlas: { title: "Pattern library, step by step", steps: [
