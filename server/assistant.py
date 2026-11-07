@@ -10,7 +10,8 @@ Two halves:
                attach the same kind of actions. Without a key, the closest sections of the
                manual answer.
 
-Actions never start a job: the page fills things in, and you press the button.
+Go and tour actions never start a job: the page fills things in, and you press the button.
+A mission action hands a goal to the superagent, which drafts a plan you approve first.
 """
 import json
 import re
@@ -19,7 +20,7 @@ from pathlib import Path
 
 MANUAL = {
     "start": ("Getting started", "Isomorph runs at http://127.0.0.1:47821 after ./run.sh in ~/Sites/isomorph; results stay in data/. Model boxes take a Hugging Face name or link, @step3000 for a checkpoint, a local folder, or microopus:words / microopus:names (7,440-weight models that need no download). Slow work runs as a job, one at a time, with a bar and a Stop button under the header. The Anthropic key (Engine tab) is only needed for the world view and for Weight space's Read, Fix and Write."),
-    "trace": ("Side by side", "Two models, one prompt, Trace prompt. Workflow: what each model would predict at every layer (logit lens), how far apart the predictions are (Jensen-Shannon divergence, 0 same, 0.69 nothing in common) and how far apart the internal states are relative to the typical gap. Architecture: the forward pass from the model's own code, and how much loss rises without each step. Attention: every head, matched across models. Neurons: how few carry 90% of the activity. If trained on this: one gradient step, which layers take the change and how low-rank it is. Surgery: remove heads, silence neurons, scale or zero slices; weights are restored after each measurement."),
+    "trace": ("Side by side", "Two models, one prompt, Trace prompt. Workflow: what each model would predict at every layer (logit lens), how far apart the predictions are (Jensen-Shannon divergence in bits: 0 the same, 1 nothing in common) and how far apart the internal states are relative to the typical gap. Architecture: the forward pass from the model's own code, and how much loss rises without each step. Attention: every head, matched across models. Neurons: how few carry 90% of the activity. If trained on this: one gradient step, which layers take the change and how low-rank it is. Surgery: remove heads, silence neurons, scale or zero slices; weights are restored after each measurement."),
     "atlas": ("Pattern library", "Profile and add (keep the random baseline ticked): a fingerprint over 239 texts, attention circuits (induction, previous-token, duplicate, sink) with a test that removes the induction heads, concept probes, and a weight signature. A pattern counts only if the trained model beats its random copy. With several models, the library shows what is shared, what is rare, and what the newest model lacks."),
     "laws": ("Laws", "Tick models and Run the laws. A tick means the law holds; the grey number is the Gaussian null. Emergent laws (heavy tails, spikes past the Marchenko-Pastur edge, scale-free singular values) should hold in trained models and fail on random ones; preserved laws (rescaling balance, softmax shift) should survive training. 'Which laws say the same thing' shows which measures rise and fall together (rank correlation 0.7 or more = one property measured twice) and which ones a random matrix already matches (AUC near 0.5). One sign per unit tests Dale's law in ordinary weights."),
     "tune": ("Tune", "Tinker-style LoRA fine-tuning on this Mac. Supervised: examples 'prompt => target' (only the target is learned) or plain lines; Example task teaches Micro Opus that cats swim and fish fly. Reinforce: prompts plus a reward rule; each step samples a group per prompt and pushes up samples above the group mean; 'Stay near the base (KL)' penalises drifting from the base model (0 lets it drift, and small models then lose their language). Learning rate around 1e-3 for supervised, 5e-3 for reinforce; rank 8 is plenty for small models. Show as Python gives the same recipe as a script using isotinker (forward_backward, optim_step, sample, save_state, as in Tinker); Python runs it from the page on the Mac itself, or ./scripts/tune.sh recipes/sl_basic.py in Terminal. Sessions from scripts chart live. Every saved adapter opens in any tab as tune:<name>. 'Where did the fine-tune go?' reads the change dW per matrix: share by block and kind, directions used of the rank given (low means a smaller rank would do), intruder directions vs a random change of the same size, share inside the base's top directions vs chance, and the heavy-tail exponent and noise-edge spikes before and after. 'Do two fine-tunes agree?' measures subspace overlap of two adapters' changes against random subspaces: two seeds of one task typically overlap several times chance; different tasks much less. Drift (KL, nats per token) above 1 means the fine-tune changed the model a lot on general text."),
@@ -109,7 +110,9 @@ def page(view, mode=None, s=None):
 
 ACT_NOTE = ("Actions you may attach: go (view: trace, atlas, laws, wsp, engine, lab, hub, about; mode for wsp: plan, read, fix, write), "
             "fill (a field id and a value: ws-spec, ws-ex, ws-q, ws-rtask, ws-ftask, ww-pattern, ww-mode, ww-budget, tr-a, tr-b, tr-prompt, at-spec, hub-a, hub-b, lw-extra), "
-            "press (only ws-plan-demo, mo-pair, ww-crafted, ww-broken, lw-all), and tour (tour, trace, wsp, atlas, laws, engine, lab, hub). Never claim an action ran a job: it only prepares the page.")
+            "press (only ws-plan-demo, mo-pair, ww-crafted, ww-broken, lw-all, tu-sl-demo, tu-rl-demo), tour (tour, trace, wsp, atlas, laws, engine, lab, hub, tune), "
+            "and mission (a goal in plain words: the superagent drafts a plan of runs for the user to approve; use it when the user wants something done, not just shown). "
+            "Never claim an action ran a job: go and tour only prepare the page, and a mission runs only after the user approves its plan.")
 
 
 def _count(glob):
@@ -264,10 +267,10 @@ def ask(question, history, s, context, call):
             msgs.append({"role": m["role"], "content": m["text"][:4000]})
     msgs.append({"role": "user", "content": question[:4000]})
     action = {"type": "object", "properties": {
-        "type": {"type": "string", "enum": ["go", "tour"]}, "view": {"type": "string"}, "mode": {"type": "string"},
+        "type": {"type": "string", "enum": ["go", "tour", "mission"]}, "goal": {"type": "string"}, "view": {"type": "string"}, "mode": {"type": "string"},
         "fill": {"type": "object", "additionalProperties": {"type": "string"}}, "press": {"type": "string"}, "tour": {"type": "string"}},
         "required": ["type"]}
-    tools = [{"name": "suggest", "description": "Attach up to three actions the page can prepare for the user (navigation, filling fields, a walkthrough). They never start a job.",
+    tools = [{"name": "suggest", "description": "Attach up to three actions: navigation, filling fields, a walkthrough, or a mission for the superagent to plan (it runs only after the user approves the plan).",
               "input_schema": {"type": "object", "properties": {"actions": {"type": "array", "maxItems": 3, "items": {"type": "object", "properties": {
                   "label": {"type": "string"}, "action": action}, "required": ["label", "action"]}}}, "required": ["actions"]}}]
     resp = call(sys, msgs, tools)
@@ -280,11 +283,11 @@ def ask(question, history, s, context, call):
     return {"reply": "\n".join(t for t in text if t.strip()).strip() or "Here are the steps I suggest.", "actions": actions, "source": "claude"}
 
 
-VIEWS = {"trace", "atlas", "laws", "wsp", "engine", "lab", "hub", "about"}
+VIEWS = {"trace", "atlas", "laws", "wsp", "tune", "engine", "lab", "hub", "about"}
 MODES = {"plan", "read", "fix", "write"}
 FIELDS = {"ws-spec", "ws-ex", "ws-q", "ws-rtask", "ws-ftask", "ww-pattern", "ww-mode", "ww-budget", "tr-a", "tr-b", "tr-prompt", "at-spec", "hub-a", "hub-b", "lw-extra"}
-PRESS = {"ws-plan-demo", "mo-pair", "ww-crafted", "ww-broken", "lw-all"}
-TOURS = {"tour", "trace", "wsp", "atlas", "laws", "engine", "lab", "hub", "about"}
+PRESS = {"ws-plan-demo", "mo-pair", "ww-crafted", "ww-broken", "lw-all", "tu-sl-demo", "tu-rl-demo"}
+TOURS = {"tour", "trace", "wsp", "atlas", "laws", "engine", "lab", "hub", "about", "tune"}
 
 
 def safe_action(a):
@@ -293,6 +296,8 @@ def safe_action(a):
         return False
     if a.get("type") == "tour":
         return a.get("tour") in TOURS
+    if a.get("type") == "mission":
+        return isinstance(a.get("goal"), str) and 0 < len(a["goal"]) < 1000
     if a.get("type") != "go" or a.get("view") not in VIEWS:
         return False
     if a.get("mode") is not None and a.get("mode") not in MODES:

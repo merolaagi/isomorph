@@ -179,7 +179,7 @@
   }
 
   document.querySelector('nav button[data-view="wsp"]').addEventListener("click", () => { if (!W.meta) init(); });
-  window.WsCore = { history: () => history(), mode: (m) => document.querySelector(`#ws-modes button[data-mode="${m}"]`).click(),
+  window.WsCore = { history: () => history(), open: async (id) => show(await api(`/api/wsp/run/${id}`)), mode: (m) => document.querySelector(`#ws-modes button[data-mode="${m}"]`).click(),
                     hasKey: () => !!(W.meta && W.meta.has_key), readImport: (spec, q) => {
                       document.querySelector('#ws-modes button[data-mode="read"]').click();
                       $("#ws-spec").value = spec; $("#ws-rtask").value = "free"; taskFields(); $("#ws-q").value = q; } };

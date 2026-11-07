@@ -16,7 +16,13 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 
 ## What it does
 
-**Assistant** (bottom right). It follows the page: its button says which tab (or Weight space mode) it is ready to help with, and it opens on *This page*: that page's guide, what to do there (buttons that prepare it), the checklist steps that belong to it, and the questions people ask there. Every question it sends carries the text of the form and the result you are looking at. Two more parts: *Next steps*: a checklist worked out from what is already on this Mac (traces, lab models, laws runs, library profiles, the Engine's ledger, Weight space runs, whether a key is saved), the next one marked, each with a Go button that opens the right tab, fills in what it can and starts nothing: you press the button there. *Ask*: a chat about any tab, result or next step. With a key, Claude answers from a built-in manual and the state of this Mac, and *Explain my screen* also sends the text of the result you are looking at; its suggested actions are checked to be page-only. Without a key, the closest sections of the manual answer.
+**Superagent** (bottom right). The overlay that follows the page now does three things.
+
+- *Do.* Say what you want ("fine-tune Micro Opus twice and tell me if the runs agree"), pick a ready-made plan for the page you are on, or press **Do it** on a checklist step. The superagent drafts a plan of runs: each step is one Isomorph action with its arguments, cost (instant, seconds, minutes, long) and whether it may download. You approve the plan, or ask it to stop before each step. It then carries the steps out one after another, passing results along (the adapter a step trained becomes the model the next step tests), and with *Follow along* it opens each result in the page as it lands: the trace, the laws page of the model, the fine-tune's anatomy, the Weight-space run. A failed step pauses the mission: retry it, skip it, or let Claude revise the rest of the plan. At the end it writes a report from the step results only. Without a key it runs fifteen ready-made playbooks (matched to your words when you type a goal); with your Anthropic key, Claude plans from your own words.
+- *Agents.* Everything that runs, at a glance, with controls: the job queue (stop a job), Autopilot (pause, resume, stop, or plan a campaign), Claude's Weight-space runs, live Tune sessions (watch, close), the superagent's own missions. Alerts say what needs you: a failed job (with *Ask why*), a job running unusually long, a Tune session idle and still holding its model in memory, a mission waiting for your go-ahead, a finished Autopilot campaign.
+- *Guide* and *Ask*, as before: the page's manual and steps, and a chat that sees your screen. Claude's answers can now hand a goal to the superagent as a plan to approve.
+
+It acts only through Isomorph's own API, with the same checks and password as the page. It has no skill that runs code, deletes anything or changes settings, and nothing runs before you approve it.
 
 **Light and dark.** The sun/moon button at the top right switches theme; until you choose, it follows the system. The choice is remembered and shared with the Micro Opus page.
 
@@ -110,11 +116,12 @@ server/lab/          tiny transformer, training, analyses
 server/hub/          checkpoint loading, weight and activation comparison
 server/trace/        file anatomy and side-by-side prompt tracing
 server/wsp/          weight space: fine-tune planner, read/fix workspace, Claude tool loop, tasks
+server/superagent/   the superagent: skills, playbooks, missions, the agent board
 server/tune/         Tune: LoRA sessions, Tinker-style API, recipes, adapter anatomy
 client/isotinker/    the Python client training scripts import
 recipes/             example training scripts (supervised, reinforcement, custom loss)
 web/                 interface (no build step, no JS dependencies)
-tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py, tests/test_microopus.py, tests/test_wsp.py, tests/test_assistant.py, tests/test_tune.py
+tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py, tests/test_microopus.py, tests/test_wsp.py, tests/test_assistant.py, tests/test_tune.py, tests/test_superagent.py
 scripts/push.sh      commit and push to GitHub (merolaagi/isomorph)
 scripts/package.sh   build a uniquely named release archive
 scripts/tune.sh      run a training script against the server

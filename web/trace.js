@@ -847,4 +847,5 @@
 
   presets();
   history();
+  window.Trace = { open: async (id) => show(await api(`/api/trace/history/${id}`)), history };
 })();

@@ -53,6 +53,11 @@ def _password():
 async def _gate(request: Request, call_next):
     """Optional password gate (HTTP Basic). Off unless a password is set, so
     local use is unchanged; required when the app is exposed on the internet."""
+    sa = globals().get("SUPER")
+    if sa is not None and not sa.base_url:
+        srv = request.scope.get("server")
+        if srv and srv[1]:
+            sa.base_url = f"http://127.0.0.1:{srv[1]}"
     pw = _password()
     if pw:
         import base64
@@ -999,6 +1004,23 @@ def _note_port():
 
 
 _note_port()
+
+# ------------------------------------------------------------------ the superagent: guides, does, supervises
+from .engine.narrator import get_key as _get_key  # noqa: E402
+from .superagent.api import make_router as _super_router  # noqa: E402
+from .superagent.core import Superagent  # noqa: E402
+
+SUPER = Superagent(DATA, jobs, _password, lambda: _get_key(DATA / "settings.json"), LAB, autopilot, TUNE, VERSION)
+
+
+def _super_claude(system, messages, tools):
+    from .wsp.agent import AGENT_MODEL, api_call
+
+    return api_call(_get_key(DATA / "settings.json"), AGENT_MODEL, max_tokens=3000)(system, messages, tools)
+
+
+SUPER.call_claude = _super_claude
+app.include_router(_super_router(SUPER))
 
 WEB = ROOT / "web"
 app.mount("/static", StaticFiles(directory=WEB), name="static")

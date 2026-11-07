@@ -211,5 +211,5 @@
   }
 
   document.querySelector('nav button[data-view="laws"]').addEventListener("click", () => loadAll());
-  window.Laws = { loadAll, lawId };
+  window.Laws = { loadAll, lawId, openModel };
 })();
