@@ -50,6 +50,10 @@ def fetch_weights(spec: str, progress=lambda f, m: None):
 
     if microopus.is_spec(spec):
         return OrderedDict(microopus.tensors(spec))
+    from ..tune import lora as _tune
+
+    if _tune.is_spec(spec):
+        return _tune.merged_tensors(spec, load_lm)
 
     if os.path.isdir(spec):
         local = sorted(p for p in os.listdir(spec) if p.endswith(".safetensors")) or \
@@ -131,6 +135,10 @@ def load_lm(spec: str):
 
     if microopus.is_spec(spec):
         return _models.get(spec, lambda: microopus.load(spec))
+    from ..tune import lora as _tune
+
+    if _tune.is_spec(spec):
+        return _models.get(spec, lambda: _tune.load_merged(spec, load_lm))
 
     def make():
         from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer

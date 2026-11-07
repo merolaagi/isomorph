@@ -157,7 +157,7 @@ def resolve(spec: str, data: Path, progress=lambda f, m: None):
     s = (spec or "").strip()
     if not s:
         raise ValueError("Enter a model name, link or folder.")
-    if s.startswith("microopus:"):
+    if s.startswith(("microopus:", "tune:")):
         return s
     if os.path.isdir(os.path.expanduser(s)):
         return os.path.expanduser(s)

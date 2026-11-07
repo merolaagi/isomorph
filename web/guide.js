@@ -7,6 +7,7 @@
   const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const nav = (v) => `nav button[data-view="${v}"]`;
   const tab = (v) => () => { const b = document.querySelector(nav(v)); if (b && b.getAttribute("aria-selected") !== "true") b.click(); };
+  const tuMode = (m) => () => { tab("tune")(); const b = document.querySelector(`#tu-modes button[data-mode="${m}"]`); if (b) b.click(); };
   const mode = (m) => () => { tab("wsp")(); const b = document.querySelector(`#ws-modes button[data-mode="${m}"]`); if (b) b.click(); };
 
   const TOURS = {
@@ -16,6 +17,7 @@
       { sel: nav("atlas"), act: "point", title: "Pattern library", text: "Profile models into a library: a fingerprint over fixed texts, attention circuits, concept probes and weight spectra, each judged against a random copy of the same architecture." },
       { sel: nav("laws"), act: "point", title: "Laws", text: "Physics and maths tests on raw weights: heavy-tailed spectra, random-matrix edges, level repulsion, Benford, conservation laws. Every law is checked against a Gaussian and a shuffled null." },
       { sel: nav("wsp"), act: "point", title: "Weight space", text: "Can the weights decide how to fine-tune or fix a model? Plan a fine-tune from the weights and the gradient (no key needed), or have Claude read and edit the weights directly, graded where the answer is known." },
+      { sel: nav("tune"), act: "point", title: "Tune", text: "Fine-tune a model on this Mac the way Tinker does in the cloud: LoRA adapters, a training loop in a few Python calls, or a form for supervised and reward-based recipes. Every adapter is then read as a change to the weights, and two fine-tunes can be compared." },
       { sel: nav("engine"), act: "point", title: "Engine", text: "Mines rules from everything you have measured, tests the ones that promise a saving, builds a blueprint and writes a world view. Your Anthropic key is saved here, for the world view and for Weight space." },
       { sel: nav("lab"), act: "point", title: "Ground-truth lab", text: "Tiny transformers that learn (a + b) mod p, where the right algorithm is known. Check any tool here first: if it cannot find the Fourier circuits in these, do not trust it on a big model." },
       { sel: nav("hub"), act: "point", title: "Model statistics", text: "Compare two checkpoints from the Hub: weights directly (cosine, spectra, low-rank differences) or activations on the same texts (CKA, neuron matching, stitching)." },
@@ -32,6 +34,15 @@
       { sel: "#tr-learn", act: "click", title: "The learning probe", text: "Adds one gradient step on the prompt: which weights would move, by how much, and how low-rank each change is." },
       { sel: "#tr-run", act: "click", title: "Trace prompt", text: "The first run downloads the models; later runs use the cache. Results open on the right, in tabs: Workflow, Architecture, Attention, Neurons, If trained on this, Weight files." },
       { sel: "#mo-pair", act: "point", title: "No download needed", text: "Micro Opus words against names: two fully transparent models. Good for a first look at every view." },
+    ]},
+    tune: { title: "Tune, step by step", steps: [
+      { before: tuMode("sl"), sel: "#tu-modes", act: "point", title: "Three ways in", text: "Supervised teaches from examples, Reinforce from a reward rule, Python runs your own training loop with the Tinker calls." },
+      { sel: "#tu-spec", act: "type", title: "The base model", text: "Any causal language model small enough for this Mac. microopus:words trains in seconds." },
+      { sel: "#tu-sl-demo", act: "click", press: true, title: "An example task", text: "Fills in a rule Micro Opus never saw: cats swim and fish fly. A quarter of the examples is held out to judge the result." },
+      { sel: "#tu-rank", act: "point", title: "Rank and learning rate", text: "The adapter's rank is how many directions per matrix it may use. The result page tells you how many it actually used." },
+      { sel: "#tu-sl-code", act: "point", title: "Show as Python", text: "The same recipe as a script: forward_backward, optim_step, sample, save. Run it here (on the Mac) or with ./scripts/tune.sh." },
+      { sel: "#tu-adapters", act: "point", title: "Adapters", text: "Every saved adapter opens in any tab as tune:<name>: trace it side by side with its base, run the Laws on it, read it in Weight space." },
+      { sel: "#tu-compare", act: "point", title: "Do two fine-tunes agree?", text: "Train the same task with two seeds, or two tasks, and compare: do the changes live in the same directions, beyond what chance gives?" },
     ]},
     wsp: { title: "Weight space, step by step", steps: [
       { before: mode("plan"), sel: "#ws-modes", act: "point", title: "Three modes", text: "Plan a fine-tune needs no key. Read and Fix use Claude with the key saved under Engine." },

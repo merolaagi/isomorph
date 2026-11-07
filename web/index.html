@@ -22,6 +22,7 @@
     <button role="tab" data-view="atlas" aria-selected="false">Pattern library</button>
     <button role="tab" data-view="laws" aria-selected="false">Laws</button>
     <button role="tab" data-view="wsp" aria-selected="false">Weight space</button>
+    <button role="tab" data-view="tune" aria-selected="false">Tune</button>
     <button role="tab" data-view="engine" aria-selected="false">Engine</button>
     <button role="tab" data-view="lab" aria-selected="false">Ground-truth lab</button>
     <button role="tab" data-view="hub" aria-selected="false">Model statistics</button>
@@ -173,6 +174,63 @@
     <div class="stage" id="ws-stage"></div>
   </section>
 
+  <!-- TUNE -->
+  <section class="view" id="view-tune" hidden>
+    <aside class="rail">
+      <div class="subtabs" id="tu-modes" role="tablist">
+        <button data-mode="sl" aria-selected="true">Supervised</button>
+        <button data-mode="rl" aria-selected="false">Reinforce</button>
+        <button data-mode="py" aria-selected="false">Python</button>
+      </div>
+      <label id="tu-spec-l">Base model<input id="tu-spec" value="microopus:words" list="tu-cands" spellcheck="false"></label>
+      <datalist id="tu-cands"></datalist>
+
+      <form id="tu-sl" class="ws-form">
+        <h2>Teach it from examples</h2>
+        <p class="hint">LoRA on a private copy of the model. Only the target after <code>=&gt;</code> is learned; a line without it is learned whole. A quarter is held out unless you give a held-out list.</p>
+        <label>Examples, one per line<textarea id="tu-ex" rows="8" spellcheck="false" placeholder="prompt => target&#10;or plain text to learn"></textarea></label>
+        <label>Held-out examples (optional)<textarea id="tu-ho" rows="2" spellcheck="false"></textarea></label>
+        <div class="row2"><label>Rank<input id="tu-rank" type="number" value="8" min="1" max="256"></label><label>Learning rate<input id="tu-lr" type="number" value="0.001" step="0.0005"></label></div>
+        <div class="row2"><label>Steps<input id="tu-steps" type="number" value="100" min="1" max="5000"></label><label>Batch<input id="tu-batch" type="number" value="8" min="1" max="128"></label></div>
+        <div class="row2"><label class="check"><input type="checkbox" id="tu-attn" checked> Attention</label><label class="check"><input type="checkbox" id="tu-mlp" checked> MLP</label></div>
+        <div class="row2"><label>Seed<input id="tu-seed" type="number" value="0" min="0"></label><label>Adapter name<input id="tu-name" placeholder="automatic" spellcheck="false"></label></div>
+        <div class="row2"><button class="primary" type="submit">Train</button><button class="ghost" type="button" id="tu-sl-demo">Example task</button></div>
+        <button class="ghost wide" type="button" id="tu-sl-code">Show as Python</button>
+      </form>
+
+      <form id="tu-rl" class="ws-form" hidden>
+        <h2>Teach it with a reward</h2>
+        <p class="hint">No answers, only a rule that scores what it writes. Each step samples a group of completions per prompt and pushes up those that beat their group's mean (GRPO-style, importance-sampling loss).</p>
+        <label>Prompts, one per line<textarea id="tu-pr" rows="5" spellcheck="false" placeholder="the&#10;a&#10;prompt => target (for the target reward)"></textarea></label>
+        <div class="row2"><label>Reward<select id="tu-reward"></select></label><label id="tu-rarg-l">Words<input id="tu-rarg" spellcheck="false"></label></div>
+        <label>Held-out prompts (optional)<textarea id="tu-rho" rows="2" spellcheck="false"></textarea></label>
+        <div class="row2"><label>Rank<input id="tu-rrank" type="number" value="8" min="1" max="256"></label><label>Learning rate<input id="tu-rlr" type="number" value="0.005" step="0.001"></label></div>
+        <div class="row2"><label>Steps<input id="tu-rsteps" type="number" value="60" min="1" max="2000"></label><label>Group size<input id="tu-group" type="number" value="8" min="2" max="64"></label></div>
+        <div class="row2"><label>Max new tokens<input id="tu-maxt" type="number" value="12" min="1" max="256"></label><label>Seed<input id="tu-rseed" type="number" value="1" min="0"></label></div>
+        <div class="row2"><label title="Each sampled token is penalised by how much more likely the fine-tune makes it than the base model. 0 lets it drift freely, which on small models usually wrecks the language.">Stay near the base (KL)<input id="tu-kl" type="number" value="0.05" min="0" step="0.01"></label><label>Adapter name<input id="tu-rname" placeholder="automatic" spellcheck="false"></label></div>
+        <div class="row2"><button class="primary" type="submit">Train</button><button class="ghost" type="button" id="tu-rl-demo">Example task</button></div>
+        <button class="ghost wide" type="button" id="tu-rl-code">Show as Python</button>
+      </form>
+
+      <form id="tu-py" class="ws-form" hidden>
+        <h2>Write the loop yourself</h2>
+        <p class="hint">The same four calls as Thinking Machines' Tinker: <code>forward_backward</code>, <code>optim_step</code>, <code>sample</code>, <code>save_state</code>. The model stays on this Mac's GPU; your script only sends tokens.</p>
+        <label>Start from<select id="tu-recipe"></select></label>
+        <div class="row2"><button class="primary" type="submit" id="tu-run">Run</button><button class="ghost" type="button" id="tu-copy">Copy</button></div>
+        <p class="hint" id="tu-py-hint"></p>
+      </form>
+
+      <h2 class="mt">Training sessions</h2>
+      <ul class="runs" id="tu-sessions"><li class="empty">Sessions from the form or from scripts appear here.</li></ul>
+      <h2 class="mt">Adapters</h2>
+      <ul class="runs" id="tu-adapters"><li class="empty">Saved adapters appear here.</li></ul>
+      <h2 class="mt">Do two fine-tunes agree?</h2>
+      <div class="row2"><label>A<select id="tu-ca"></select></label><label>B<select id="tu-cb"></select></label></div>
+      <button class="ghost wide" type="button" id="tu-compare">Compare their changes</button>
+    </aside>
+    <div class="stage" id="tu-stage"></div>
+  </section>
+
   <!-- ENGINE -->
   <section class="view" id="view-engine" hidden>
     <aside class="rail">
@@ -300,6 +358,7 @@
 <script src="/static/laws.js"></script>
 <script src="/static/wsp.js"></script>
 <script src="/static/write.js"></script>
+<script src="/static/tune.js"></script>
 <script src="/static/guide.js"></script>
 <script src="/static/assistant.js"></script>
 </body>

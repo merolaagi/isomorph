@@ -669,6 +669,11 @@ def laws_candidates():
         if m["spec"] not in seen:
             out.append({"spec": m["spec"], "group": "Pattern library", "label": m["spec"]})
             seen.add(m["spec"])
+    from .tune.lora import list_adapters
+
+    for a in list_adapters():
+        out.append({"spec": a["spec"], "group": "Fine-tunes (Tune)", "label": f"{a['name']} (on {a['base']})"})
+        seen.add(a["spec"])
     for it in catalog.saved_list(DATA) + catalog.recent_list(DATA):
         if it["spec"] not in seen:
             out.append({"spec": it["spec"], "group": "My and recent models", "label": it["spec"]})
@@ -966,6 +971,34 @@ def assistant_ask(req: AskReq):
 from .wsp.api import make_router  # noqa: E402
 
 app.include_router(make_router(jobs, DATA, LAB, lambda s_, pr: catalog.resolve(s_, DATA, pr)))
+
+# ------------------------------------------------------------------ tune: Tinker-style fine-tuning on this Mac
+from .hub.load import load_lm as _load_lm  # noqa: E402
+from .tune.api import make_router as _tune_router  # noqa: E402
+from .tune.service import Service as _TuneService  # noqa: E402
+
+TUNE = _TuneService(lambda s_, pr: catalog.resolve(s_, DATA, pr), _load_lm)
+app.include_router(_tune_router(jobs, DATA, TUNE))
+
+
+def _note_port():
+    """Write where this server listens, so training scripts on this Mac find it."""
+    import sys as _sys
+
+    port = None
+    for i, a in enumerate(_sys.argv):
+        if a == "--port" and i + 1 < len(_sys.argv):
+            port = _sys.argv[i + 1]
+        elif a.startswith("--port="):
+            port = a.split("=", 1)[1]
+    if port:
+        try:
+            (DATA / "server.json").write_text(json.dumps({"url": f"http://127.0.0.1:{port}", "pid": os.getpid()}))
+        except Exception:
+            pass
+
+
+_note_port()
 
 WEB = ROOT / "web"
 app.mount("/static", StaticFiles(directory=WEB), name="static")

@@ -17,7 +17,7 @@
   try { if (localStorage.getItem("isomorph-guide-seen")) seen.add("tour"); } catch { /* private window */ }
   const mark = (x) => { if (!seen.has(x)) { seen.add(x); keep(); } };
 
-  const STAGES = { trace: "#tr-stage", atlas: "#at-stage", laws: "#lw-stage", wsp: "#ws-stage", engine: "#en-stage", lab: "#lab-stage", hub: "#hub-stage", about: "#view-about" };
+  const STAGES = { trace: "#tr-stage", atlas: "#at-stage", laws: "#lw-stage", wsp: "#ws-stage", tune: "#tu-stage", engine: "#en-stage", lab: "#lab-stage", hub: "#hub-stage", about: "#view-about" };
   const view = () => { const b = document.querySelector('nav button[aria-selected="true"]'); return b ? b.dataset.view : "trace"; };
   const mode = () => { const b = document.querySelector('#ws-modes button[aria-selected="true"]'); return b ? b.dataset.mode : null; };
   const where = () => ({ view: view(), mode: view() === "wsp" ? mode() : null });

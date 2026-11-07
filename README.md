@@ -45,6 +45,27 @@ For every Hugging Face model the Architecture tab now does the same for the tran
 - *Write* brings in [Weightspace Lab](https://github.com/merolaagi/weightspacelab): a 2 → H → 1 network (ReLU, then sigmoid) small enough to see whole, drawn as its decision landscape with the grid points it gets wrong marked. Edit every weight with sliders, apply a hand-written solution, reset to the broken network (one output weight's sign flipped), and export or load Weightspace Lab's JSON. Six patterns: diagonal, band, XOR, disc, one corner, two stripes, each with crafted weights. Then the part the paper tests: Claude is told the rule in words and writes every weight with no data and no training (one shot, or with a few drafts it may score), or finds the fault in the broken network. It is graded on the same 41 × 41 grid against random weights, the majority class, and the same network trained by Adam on 400 labelled points. *Read this network with Claude* sends a hand-written network to the Read tools. The browser's forward pass matches the server's to 1e-12 (checked in the tests).
 - Other apps can send weights in: `POST /api/wsp/import` with safetensors bytes (and a short description of the architecture) makes an `import:<id>` model that the Read tools work on, and `/#wsp/read/import:<id>` opens it. Deep Network Designer uses this for its checkpoints.
 
+**Tune.** Fine-tuning on this Mac the way Thinking Machines' [Tinker](https://thinkingmachines.ai/tinker/) does it in the cloud: you write the training loop in Python with four calls, and LoRA adapters keep it cheap. The Isomorph server holds the model on the Mac's GPU; scripts talk to it through `isotinker` (in `client/`), whose names follow Tinker's SDK:
+
+```python
+import isotinker as tinker
+from isotinker import types
+
+tc = tinker.ServiceClient().create_lora_training_client(base_model="microopus:words", rank=8)
+tok = tc.get_tokenizer()
+ids = tok.encode("the cat swam in the pond .")
+d = types.Datum(model_input=types.ModelInput.from_ints(ids[:-1]),
+                loss_fn_inputs={"target_tokens": ids[1:], "weights": [1.0] * (len(ids) - 1)})
+for step in range(30):
+    fb = tc.forward_backward([d], "cross_entropy")
+    tc.optim_step(types.AdamParams(learning_rate=1e-3))
+sampler = tc.save_weights_and_get_sampling_client(name="my-adapter")   # opens anywhere as tune:my-adapter
+```
+
+Run a script with `./scripts/tune.sh recipes/sl_basic.py`; `recipes/` also has `rl_basic.py` (rewards, group-relative advantages, a KL penalty to the base) and `custom_loss.py` (`forward_backward_custom`). Losses: `cross_entropy`, `importance_sampling`, `ppo`, and any loss of your own. Also `forward`, `sample` (with log-probabilities, from live weights or a saved adapter), `compute_logprobs`, `save_state` and `create_training_client_from_state[_with_optimizer]`, and `log()` to put your own numbers on the chart. The tab runs the two common recipes from a form (*Supervised* from `prompt => target` examples, *Reinforce* from a reward rule), shows either one as the equivalent Python, runs Python from the page when Isomorph is opened on the Mac itself (never through the public address), and charts every session live, including sessions started from Terminal.
+
+What Tinker does not do is open the adapter. Every saved adapter is a model spec, `tune:<name>`, that every other tab loads: trace it side by side with its base, run the Laws on it, plan or read it in Weight space, download it or its merged weights. *Where did the fine-tune go?* reads each change dW = (alpha/r) U Vᵀ: its share by block and kind, how many of its directions it really used, intruder directions (new top singular vectors, after Shuttleworth et al. 2024) against a random change of the same size and rank, how much lies in the base's own top directions against chance, and the heavy-tail exponent and noise-edge spikes before and after. *Do two fine-tunes agree?* measures the subspace overlap of two adapters' changes against random subspaces. On Micro Opus, two seeds taught "cats swim, fish fly" share 66% of their directions against 14% by chance, and a reward-trained adapter shares no more than chance with them. Reinforcement without the KL penalty raises the reward and wrecks the language (12 nats per token of drift); with it, reward rose 0.38 → 0.60 at 0.04 nats.
+
 **Laws.** Physics- and maths-informed tests on raw weights, for any model (Hugging Face, local, Micro Opus, lab models): heavy-tailed eigenvalue spectra, eigenvalues beyond the Marchenko–Pastur edge of pure noise, level repulsion in the spectral bulk (GOE vs Poisson spacing ratio), power-law singular values, Benford's law, kurtosis, neuron balance under the rescaling symmetry, the softmax-shift conservation law, symmetry of attention's bilinear form, and equipartition of weight energy across layers. Every measure is repeated on a Gaussian null and a shuffled null; emergent laws must beat the nulls, preserved laws must survive training. Results feed the Engine's rule miner as cross-model law rules.
 
 **Which laws say the same thing** (Laws tab). Over every weight matrix of every model tested: the rank correlation between each pair of measures (0.7 or more counts as one property measured twice), and how well each measure tells trained weights from a random matrix of the same shape (AUC; 0.5 means it cannot). A new law, *one sign per unit* (Dale's law), asks whether ordinary trained weights drift toward one sign per unit by themselves. `GET /api/laws/map` gives other apps a compact summary (every weight law, every rule with its lever's verdict, and the redundancy result); Deep Network Designer's Laws page reads it. Checkpoints sent in from other apps (`import:<id>`) can be tested on the Laws tab like any other model.
@@ -89,10 +110,14 @@ server/lab/          tiny transformer, training, analyses
 server/hub/          checkpoint loading, weight and activation comparison
 server/trace/        file anatomy and side-by-side prompt tracing
 server/wsp/          weight space: fine-tune planner, read/fix workspace, Claude tool loop, tasks
+server/tune/         Tune: LoRA sessions, Tinker-style API, recipes, adapter anatomy
+client/isotinker/    the Python client training scripts import
+recipes/             example training scripts (supervised, reinforcement, custom loss)
 web/                 interface (no build step, no JS dependencies)
-tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py, tests/test_microopus.py, tests/test_wsp.py, tests/test_assistant.py
+tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py, tests/test_microopus.py, tests/test_wsp.py, tests/test_assistant.py, tests/test_tune.py
 scripts/push.sh      commit and push to GitHub (merolaagi/isomorph)
 scripts/package.sh   build a uniquely named release archive
+scripts/tune.sh      run a training script against the server
 ```
 
 ## Put it online (Cloudflare tunnel)
