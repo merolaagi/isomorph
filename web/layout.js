@@ -38,6 +38,76 @@
     v.appendChild(toc);
   }
 
+  // ------------------------------------------------------------ the left panel's edge: drag to resize
+  const RAIL = { key: "isomorph-rail-w", def: 300, min: 220, fold: 140 };
+  const maxW = () => Math.max(RAIL.min, Math.min(620, Math.round(innerWidth * 0.45)));
+  const readW = () => { try { return parseInt(localStorage.getItem(RAIL.key), 10); } catch { return NaN; } };
+  const saveW = (w) => { try { localStorage.setItem(RAIL.key, String(w)); } catch { /* private window */ } };
+  function setW(w, keep = true) {
+    const off = w === 0;
+    root.classList.toggle("rail-off", off);
+    const px = off ? 0 : Math.max(RAIL.min, Math.min(maxW(), Math.round(w)));
+    root.style.setProperty("--rail-w", `${px}px`);
+    document.querySelectorAll(".md-rail-handle").forEach((h) => {
+      h.setAttribute("aria-valuenow", String(px));
+      h.setAttribute("aria-valuemax", String(maxW()));
+      h.title = off ? "Show the panel (drag or double-click)" : "Drag to resize the panel, drag nearly shut to hide it, double-click to reset";
+    });
+    if (keep) saveW(px);
+  }
+  const saved = readW();
+  setW(Number.isFinite(saved) ? saved : RAIL.def, false);
+  for (const v of views) {
+    const rail = v.querySelector(":scope > .rail");
+    if (!rail) continue;
+    const h = document.createElement("div");
+    h.className = "md-rail-handle";
+    h.setAttribute("role", "separator");
+    h.setAttribute("aria-orientation", "vertical");
+    h.setAttribute("aria-label", "Resize the left panel");
+    h.setAttribute("aria-valuemin", "0");
+    h.tabIndex = 0;
+    h.innerHTML = `<span class="md-rail-grip"></span>`;
+    rail.after(h);
+    h.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      h.setPointerCapture(e.pointerId);
+      h.classList.add("drag");
+      document.body.classList.add("rail-dragging");
+      const left = v.getBoundingClientRect().left;
+      const move = (ev) => {
+        const w = ev.clientX - left;
+        setW(w < RAIL.fold ? 0 : w, false);
+      };
+      const up = (ev) => {
+        h.releasePointerCapture(e.pointerId);
+        h.classList.remove("drag");
+        document.body.classList.remove("rail-dragging");
+        h.removeEventListener("pointermove", move);
+        h.removeEventListener("pointerup", up);
+        h.removeEventListener("pointercancel", up);
+        const w = ev.clientX - left;
+        if (Math.abs(ev.clientX - e.clientX) < 3 && root.classList.contains("rail-off")) setW(RAIL.def);   // a click on the folded tab opens it
+        else setW(w < RAIL.fold ? 0 : w);
+      };
+      h.addEventListener("pointermove", move);
+      h.addEventListener("pointerup", up);
+      h.addEventListener("pointercancel", up);
+    });
+    h.addEventListener("dblclick", () => setW(RAIL.def));
+    h.addEventListener("keydown", (e) => {
+      const cur = root.classList.contains("rail-off") ? 0 : parseInt(getComputedStyle(root).getPropertyValue("--rail-w"), 10);
+      const step = e.shiftKey ? 64 : 16;
+      if (e.key === "ArrowLeft") { e.preventDefault(); setW(cur - step < RAIL.fold ? 0 : cur - step); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); setW(cur === 0 ? RAIL.min : cur + step); }
+      else if (e.key === "Home") { e.preventDefault(); setW(0); }
+      else if (e.key === "End") { e.preventDefault(); setW(maxW()); }
+      else if (e.key === "Enter") { e.preventDefault(); setW(cur === 0 ? RAIL.def : 0); }
+    });
+  }
+  addEventListener("resize", () => { if (!root.classList.contains("rail-off")) setW(parseInt(getComputedStyle(root).getPropertyValue("--rail-w"), 10), false); });
+
   // ------------------------------------------------------------ "On this page"
   const active = () => views.find((v) => !v.hidden);
   function headings(v) {

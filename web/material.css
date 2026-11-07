@@ -25,6 +25,7 @@
   --serif: var(--sans);
   --mono: "Roboto Mono", "SF Mono", Menlo, Consolas, monospace;
   --hdr: 122px;
+  --rail-w: 300px;
 }
 :root[data-theme="dark"] {
   --tk-accent: #e0b25c; --tk-accent-bg: rgba(224, 178, 92, .12); --tk-head: #e6e6e6; --tk-text: #dedede; --tk-dim: #a3a3a3; --tk-faint: #777;
@@ -114,7 +115,7 @@ header.top > .jobbar .meter div { background: var(--tk-accent); }
 
 /* ---------------------------------------------------------------- the three columns */
 main { max-width: 1560px; margin: 0 auto; }
-.view { grid-template-columns: 300px minmax(0, 1fr) 250px; min-height: calc(100vh - var(--hdr)); background: var(--paper); }
+.view { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr) 250px; min-height: calc(100vh - var(--hdr)); background: var(--paper); }
 .view > .rail {
   position: sticky; top: var(--hdr); align-self: start; height: calc(100vh - var(--hdr)); overflow-y: auto;
   border: 0; background: var(--paper); padding: 32px 20px 48px 28px; scrollbar-width: thin; scrollbar-color: var(--tk-rule) transparent;
@@ -190,8 +191,8 @@ tbody tr:hover td { background: var(--tk-hover); }
 .lawtab td, .lawtab th { padding: 8px 12px; }
 
 /* "How it works": a docs page with its sections on the left */
-#view-about { grid-template-columns: 300px minmax(0, 1fr) 250px; }
-#view-about .prose { grid-column: 2; padding: 30px 40px 110px; max-width: 880px; }
+#view-about { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr) 250px; }
+#view-about .prose { grid-column: 3; padding: 30px 40px 110px; max-width: 880px; }
 .prose h1 { font-family: var(--sans); font-weight: 600; font-size: 34px; color: var(--tk-head); letter-spacing: -.02em; margin: 48px 0 14px; }
 .prose h1:first-child { margin-top: 0; }
 .prose h2 { font-weight: 600; font-size: 24px; color: var(--tk-head); }
@@ -219,7 +220,7 @@ tbody tr:hover td { background: var(--tk-hover); }
 
 /* ---------------------------------------------------------------- narrower screens */
 @media (max-width: 1260px) {
-  .view, #view-about { grid-template-columns: 290px minmax(0, 1fr); }
+  .view, #view-about { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr); }
   .md-toc { display: none; }
 }
 @media (max-width: 960px) {
@@ -238,6 +239,8 @@ tbody tr:hover td { background: var(--tk-hover); }
   .view, #view-about { grid-template-columns: minmax(0, 1fr); }
   .view > .rail { position: static; height: auto; border-bottom: 1px solid var(--tk-rule); padding: 20px 16px; }
   #view-about .prose { grid-column: 1; padding: 20px 16px 90px; }
+  .md-rail-handle { display: none; }
+  :root.rail-off .view > .rail { display: block; visibility: visible; padding: 20px 16px; }
   .view > .stage { padding: 20px 16px 100px; }
   .stage .head h1, .stage > h1, .lede, .intro p.lede { font-size: 28px; }
   .md-doc-tools { justify-content: flex-start; }
@@ -250,3 +253,17 @@ header.top > .brand .cb { mix-blend-mode: normal; }
 header.top.searching { z-index: 50; background: color-mix(in srgb, var(--paper) 55%, #141414); border-bottom-color: transparent; }
 header.top.searching > :not(.md-search) { filter: brightness(.55); }
 .md-scrim { z-index: 49; }
+
+/* the left panel's edge: a thin line you can drag; drag it nearly shut to fold the panel away */
+.view > .rail { border-right: 0; overflow-x: hidden; }
+.md-rail-handle { position: sticky; top: var(--hdr); align-self: start; height: calc(100vh - var(--hdr)); width: 0; z-index: 6; cursor: col-resize; touch-action: none; outline: none; }
+.md-rail-handle::before { content: ""; position: absolute; left: -.5px; top: 0; bottom: 0; width: 1px; background: var(--tk-rule); transition: background .15s, width .15s, left .15s; }
+.md-rail-handle::after { content: ""; position: absolute; left: -5px; top: 0; bottom: 0; width: 10px; }
+.md-rail-handle:hover::before, .md-rail-handle:focus-visible::before, .md-rail-handle.drag::before { left: -1px; width: 2px; background: var(--tk-accent); }
+.md-rail-handle .md-rail-grip { position: absolute; top: 50%; left: -3px; width: 6px; height: 34px; margin-top: -17px; border-radius: 3px; background: var(--paper); border: 1px solid var(--tk-rule); opacity: 0; transition: opacity .15s; pointer-events: none; }
+.md-rail-handle:hover .md-rail-grip, .md-rail-handle.drag .md-rail-grip, .md-rail-handle:focus-visible .md-rail-grip, :root.rail-off .md-rail-grip { opacity: 1; }
+:root.rail-off .md-rail-grip { left: 0; width: 14px; height: 44px; margin-top: -22px; border-radius: 0 4px 4px 0; border-left: 0; cursor: e-resize; pointer-events: auto; }
+:root.rail-off .md-rail-grip::after { content: "›"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: var(--tk-dim); }
+:root.rail-off .view > .rail { visibility: hidden; padding: 0; }
+body.rail-dragging, body.rail-dragging * { cursor: col-resize !important; user-select: none !important; }
+@media (prefers-reduced-motion: reduce) { .md-rail-handle::before, .md-rail-grip { transition: none; } }
