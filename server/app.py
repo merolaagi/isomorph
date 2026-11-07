@@ -1022,6 +1022,94 @@ def _super_claude(system, messages, tools):
 SUPER.call_claude = _super_claude
 app.include_router(_super_router(SUPER))
 
+
+# ------------------------------------------------------------------ search over everything
+_MANUAL_VIEW = {"start": ("about", None), "reading": ("about", None), "trace": ("trace", None), "atlas": ("atlas", None), "laws": ("laws", None),
+                "tune": ("tune", None), "engine": ("engine", None), "lab": ("lab", None), "hub": ("hub", None), "dnn": ("wsp", "read")}
+
+
+def _search_items():
+    from . import assistant
+    from .search import cached_json, head_fields
+    from .superagent.playbooks import PLAYBOOKS
+    from .tune.lora import list_adapters
+
+    items = []
+    for k, (title, text) in assistant.MANUAL.items():
+        view, mode = _MANUAL_VIEW.get(k, ("wsp", k.split("-", 1)[1]) if k.startswith("wsp-") else ("about", None))
+        items.append({"group": "Guide", "title": title, "sub": text[:160], "text": text, "action": {"type": "guide", "view": view, "mode": mode}})
+    try:
+        for c in laws_candidates():
+            if c["spec"].startswith("tune:"):
+                continue
+            items.append({"group": "Models", "title": c["label"], "sub": f"{c['spec']} · {c['group']}" + (" · laws tested" if c.get("tested") else ""),
+                          "text": c["spec"], "action": {"type": "model", "spec": c["spec"]}, "boost": .5})
+    except Exception:
+        pass
+    for f in sorted(TRACE.glob("*.json"), reverse=True)[:200]:
+        h = head_fields(f, ["id", "a", "b", "prompt"])
+        if h and h.get("id"):
+            items.append({"group": "Results", "title": f"Trace: {h.get('a')} vs {h.get('b')}", "sub": f"“{(h.get('prompt') or '')[:90]}” · {h['id'][:8]}",
+                          "action": {"type": "trace", "id": h["id"]}, "kind": "trace"})
+    wsp = DATA / "wsp"
+
+    def _wsp(b):
+        g = b.get("grade") or {}
+        line = b.get("verdict") or g.get("how") or ""
+        return {"id": b.get("id"), "kind": b.get("kind"), "task": b.get("task"), "spec": b.get("spec"), "line": str(line)[:200]}
+    for f in sorted(wsp.glob("*.json"), reverse=True)[:200] if wsp.exists() else []:
+        w = cached_json(f, _wsp)
+        if w and w.get("id"):
+            kind = {"plan": "Fine-tune plan", "read": "Claude read", "fix": "Claude fix", "write": "Claude write"}.get(w["kind"], w["kind"] or "Run")
+            items.append({"group": "Results", "title": f"{kind}{': ' + w['task'] if w.get('task') else ''} · {str(w.get('spec') or '').split('/')[-1]}",
+                          "sub": w["line"], "action": {"type": "wsp", "id": w["id"], "mode": w["kind"]}, "kind": "wsp"})
+
+    def _laws(b):
+        return {"spec": b.get("spec"), "params": b.get("params")}
+    for f in sorted(LAWS_DIR.glob("*.json"), key=lambda p: -p.stat().st_mtime)[:200]:
+        x = cached_json(f, _laws)
+        if x and x.get("spec"):
+            items.append({"group": "Results", "title": f"Laws: {x['spec']}", "sub": "Which physics and maths laws its weights obey", "text": "laws physics maths",
+                          "action": {"type": "laws", "spec": x["spec"]}, "kind": "laws"})
+    for d in sorted(LAB.iterdir(), reverse=True) if LAB.exists() else []:
+        cfg = cached_json(d / "config.json", lambda c: c) if (d / "config.json").exists() else None
+        if cfg:
+            items.append({"group": "Results", "title": f"Lab run: (a + b) mod {cfg.get('p')}", "sub": f"{d.name} · seeds {', '.join(map(str, cfg.get('seeds', [])))}",
+                          "text": "ground truth lab family modular", "action": {"type": "lab", "run_id": d.name}, "kind": "lab"})
+    for f in sorted(HUB.glob("*.json"), reverse=True)[:100]:
+        h = head_fields(f, ["id", "kind", "a", "b"])
+        if h and h.get("id"):
+            items.append({"group": "Results", "title": f"Model statistics: {h.get('a')} vs {h.get('b')}", "sub": f"{h.get('kind')} · {h['id'][:8]}",
+                          "action": {"type": "go", "view": "hub"}, "kind": "hub"})
+    try:
+        from .atlas.library import list_profiles
+
+        for m in list_profiles(ATLAS):
+            items.append({"group": "Results", "title": f"Library profile: {m.get('spec')}", "sub": "Pattern library", "text": "profile fingerprint circuits",
+                          "action": {"type": "go", "view": "atlas"}, "kind": "atlas"})
+    except Exception:
+        pass
+    for a in list_adapters():
+        items.append({"group": "Adapters", "title": a["name"], "sub": f"fine-tune of {a['base']} · {a.get('step', 0)} steps · tune:{a['name']}",
+                      "text": "adapter lora fine tune", "action": {"type": "tune", "adapter": a["name"]}, "model": f"tune:{a['name']}"})
+    for m in SUPER.missions.values():
+        items.append({"group": "Missions", "title": m["title"], "sub": f"{m['status']} · {sum(1 for s_ in m['steps'] if s_['status'] == 'done')}/{len(m['steps'])} steps · {m.get('goal', '')[:100]}",
+                      "text": " ".join(s_["label"] for s_ in m["steps"]), "action": {"type": "mission", "id": m["id"]}})
+    has_key = bool(_get_key(DATA / "settings.json"))
+    for pid, p in PLAYBOOKS.items():
+        if p.get("key") and not has_key:
+            continue
+        items.append({"group": "Plans", "title": p["title"], "sub": "Ready-made plan for the superagent · " + p["why"], "text": " ".join(x[0] for x in p["steps"]),
+                      "action": {"type": "playbook", "id": pid}})
+    return items
+
+
+@app.get("/api/search")
+def search(q: str = "", limit: int = 30):
+    from .search import rank
+
+    return clean(rank(_search_items(), q[:200], max(1, min(limit, 60))))
+
 WEB = ROOT / "web"
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 

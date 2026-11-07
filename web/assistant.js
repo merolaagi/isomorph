@@ -441,6 +441,10 @@
 
   schedule();
   poll();
-  window.IsoAssistant = { open: () => toggle(true), ask, run, where, plan, tab };
+  window.IsoAssistant = {
+    open: () => toggle(true), ask, run, where, plan, tab, openResult,
+    showMission: async (id) => { setMission(await api(`/api/superagent/mission/${id}`)); toggle(true); tab("do"); label(); },
+    guide: async () => { await refresh(); toggle(true); tab("page"); },
+  };
   window.Superagent = window.IsoAssistant;
 })();

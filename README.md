@@ -16,6 +16,8 @@ Settings: `ISOMORPH_PORT` (default 47821; moves to the next free port if taken),
 
 ## What it does
 
+**Look and search.** The page follows the Tinker docs (Material for MkDocs): a white header with the search box, the tabs underneath, each tab's controls on the left with its modes as an amber-marked nav, results in the middle as a document, and *On this page* on the right, following the scroll. Every result page has *Copy as Markdown* and *View as Markdown* (headings, findings, tables, lists; charts noted), ready to paste into Claude or save as a .md file. Search (press / or ⌘K) covers the tabs and modes, the sections of the page you are on, the guide, every model, every saved result (traces, laws, Weight-space runs, lab runs, library profiles, model statistics), adapters, the superagent's missions and its ready-made plans; a model result has Trace, Laws and Tune buttons that fill it into that tab. Light and dark follow the system until you choose.
+
 **Superagent** (bottom right). The overlay that follows the page now does three things.
 
 - *Do.* Say what you want ("fine-tune Micro Opus twice and tell me if the runs agree"), pick a ready-made plan for the page you are on, or press **Do it** on a checklist step. The superagent drafts a plan of runs: each step is one Isomorph action with its arguments, cost (instant, seconds, minutes, long) and whether it may download. You approve the plan, or ask it to stop before each step. It then carries the steps out one after another, passing results along (the adapter a step trained becomes the model the next step tests), and with *Follow along* it opens each result in the page as it lands: the trace, the laws page of the model, the fine-tune's anatomy, the Weight-space run. A failed step pauses the mission: retry it, skip it, or let Claude revise the rest of the plan. At the end it writes a report from the step results only. Without a key it runs fifteen ready-made playbooks (matched to your words when you type a goal); with your Anthropic key, Claude plans from your own words.
@@ -121,7 +123,7 @@ server/tune/         Tune: LoRA sessions, Tinker-style API, recipes, adapter ana
 client/isotinker/    the Python client training scripts import
 recipes/             example training scripts (supervised, reinforcement, custom loss)
 web/                 interface (no build step, no JS dependencies)
-tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py, tests/test_microopus.py, tests/test_wsp.py, tests/test_assistant.py, tests/test_tune.py, tests/test_superagent.py
+tests/               python3 tests/test_lab.py, tests/test_hub_offline.py, tests/test_trace_offline.py, tests/test_microopus.py, tests/test_wsp.py, tests/test_assistant.py, tests/test_tune.py, tests/test_superagent.py, tests/test_search.py
 scripts/push.sh      commit and push to GitHub (merolaagi/isomorph)
 scripts/package.sh   build a uniquely named release archive
 scripts/tune.sh      run a training script against the server
